@@ -1,0 +1,8 @@
+data/*/*.csv
+data/*/*.txt
+data/*/*.vcf
+
+output/*.csv
+
+logs/*.log
+logs/*.out
