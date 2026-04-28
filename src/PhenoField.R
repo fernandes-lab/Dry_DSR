@@ -3,6 +3,8 @@ library(dplyr)
 library(stringr)
 library(readxl)
 library(asreml)
+library(ggplot2)
+library(tidyr)
 
 #-------------------------------------------------------------------------------------------------------#
 #### Basic exploratory analysis and cleaning of the data ####
@@ -59,13 +61,97 @@ expField <- expField |>
 with(expField, table(genotype, replication) > 0) |>
         rowSums() |>
         table()
-# 503 genotypes appear in 3 replications and 1 appears in 2
+# 503 genotypes appear in 3 replications and 1 appears in 2 (One genotype was replicated only once)
 # Bear in mind that the deep sowing treatment had 3 replications while the shallow sowing one had 2
 
 # Checking for NAs
 expField |>
     is.na() |>
     colSums()
+# Since there are NAs only in the response variables, we can leave them be because
+# the genotypic matrix is going to share information across different genotypes,
+# and we know it has no NA
+
+# Checking number of blocks per replication
+with(expField, table(block, replication, depth))
+# We can see that roughly all the genotypes appear in each rep, being equally split across
+# three incomplete blocks in each rep. Furthermore, the genotypes are planted "deeply" in
+# all 3 reps, whereas the shallow treatment is only applied in the first 2 reps
+
+
+# Checking distribution of variables
+png(here("output/plots","FieldExpDists.png"), width=800, height=600)
+expField |>
+  pivot_longer(cols = 8:13) |>
+  ggplot(aes(x = value)) +
+  geom_density() +
+  facet_wrap(~name, scales = "free")
+dev.off()
+
+# Emergence is quite left skewed, whereas rootlength
+# and shootlength seem approximately normal
+# soe is somewhat left skewed, and mesocotyl seems
+# right skewed(?)
+
+# We will need to link the field phenotypes to the genotypic dataset just like we did with the
+# ragdoll phenotypes. For that we will also need the LS_means spreadsheet:
+
+genoInfo2 <- read_xlsx(here("data/sandeepOnly/rawData", "LS_means_ragdoll.xlsx"))
+# Keeping only relevant columns for our purposes
+genoInfo2 <- genoInfo2 |>
+          rename(genonumber = SEQ, genotype = Genotype, genoID = `HDRA genotype assay ID`, subpop = Sub_pop) |>
+          select(genonumber, genotype, subpop, genoID)
+
+# Let's check for NAs in the genoInfo2 dataset
+genoInfo2 |>
+  is.na() |>
+  colSums()
+
+# In both columns
+sum(is.na(genoInfo2 |> select(genonumber, genoID)))
+
+# 20 NAs in genonumber, and 16 NAs in genoID, with no overlap between them
+
+# I want to compare pedigree from expField to genotype from genoInfo2 since neither have
+# missing values, however they are not quite exactly the same
+# Maybe I could somehow complement this matching with genotype (no NA) from expField and 
+# genonumber from genoInfo2
+
+# Seeing how many strings in genotype from genoInfo2 are contained in pedigree from expField:
+sum = 0
+for (i in 1:nrow(genoInfo2)){
+  sum = sum + any(str_detect(unique(expField$pedigree), regex(genoInfo2$genotype[i], ignore_case = TRUE)))
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

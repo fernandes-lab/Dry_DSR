@@ -97,7 +97,7 @@ sum(is.na(tgtIdx))
 # Then clean genoID of NA values (there is a "NA" string as well)
 # Finally, drop levels that were lost after removing NAs
 expRagdoll <- expRagdoll |>
-                mutate(genoID = genoInfo$genoID[tgtIdx]) |>
+                mutate(genoID = genoInfo$genoID[tgtIdx], subpop = genoInfo$subpop[tgtIdx]) |>
                 filter(!genoID %in% c("NA", NA)) |>
                 droplevels()
 
@@ -110,8 +110,10 @@ expRagdoll <- expRagdoll |>
 expRagdoll |>
     is.na() |>
     colSums()
+# NAs only in the responses. The G matrix will hopefully bridge this gap
+# by leveraging the shared information across genotypes
 
-# Saving for posterity, before transforming data types and removing NAs
+# Saving for posterity
 save(expRagdoll, file = here("data", "expRagdoll.Rdata"))
 
 #--------------------------------------------------------------------------------------------------#
