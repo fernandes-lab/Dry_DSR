@@ -6,3 +6,5 @@ output/*.csv
 
 logs/*.log
 logs/*.out
+.Rproj.user
+.positai

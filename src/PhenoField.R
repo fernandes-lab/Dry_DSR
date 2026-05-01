@@ -47,15 +47,15 @@ expField <- expField |>
             rename(plotnum = PlotBarcode, mesocotyl = mesocotyl_length, rootlength = root_length, shootlength = shoot_length, seedcount = Seed_count, replication  = Replicate) |>
             mutate(across(c("depth", "block", "Row", "replication", "Genotype", "Pedigree"), as.factor)) |>
             rename_with(tolower)
-            
 str(expField)
 summary(expField)
 
-# genotype and pedigree seem to provide the same information in different formats
-# pedigree should be removed, since genotype can be linked to the ragdoll and thus the
-# genotypic dataset, and we can obtain the genotype names from expRagdoll
+# Further renaming for better mutual understanding with genoInfo:
 expField <- expField |>
-            select(-pedigree)
+            rename(genonumber = genotype, genotype = pedigree)
+
+# Saving before any major changes
+save(expField, file = here("data", "expField.Rdata"))
 
 # Checking how many times each genotype appears in each replication
 with(expField, table(genotype, replication) > 0) |>
@@ -94,149 +94,68 @@ dev.off()
 # right skewed(?)
 
 # We will need to link the field phenotypes to the genotypic dataset just like we did with the
-# ragdoll phenotypes. For that we will also need the LS_means spreadsheet:
+# ragdoll phenotypes. For that we will also need the genoInfo dataset created in PhenoRagdoll:
+load(file = here("data", "genoInfo.Rdata"))
 
-genoInfo2 <- read_xlsx(here("data/sandeepOnly/rawData", "LS_means_ragdoll.xlsx"))
-# Keeping only relevant columns for our purposes
-genoInfo2 <- genoInfo2 |>
-          rename(genonumber = SEQ, genotype = Genotype, genoID = `HDRA genotype assay ID`, subpop = Sub_pop) |>
-          select(genonumber, genotype, subpop, genoID)
+# Matching expField to genoInfo through the genonumber column
+# There are missing values in the genonumber column of genoInfo, 
+# but there is no trivial way to retrieve them
+tgtIdx <- match(expField$genonumber, genoInfo$genonumber)
+sum(is.na(tgtIdx))
 
-# Let's check for NAs in the genoInfo2 dataset
-genoInfo2 |>
+# Add the genoID column to the expRagdoll dataset (for eventual use in GBLUP)
+expField <- expField |>
+  mutate(genoID = genoInfo$genoID[tgtIdx], subpop = genoInfo$subpop[tgtIdx])
+
+# Checking for NAs in expField again
+
+expField |>
   is.na() |>
   colSums()
 
-# In both columns
-sum(is.na(genoInfo2 |> select(genonumber, genoID)))
+# Let's load the accessions to check if the experimental dataset has samples from all of them
+load(file = here("data", "snpAccessions.RData"))
 
-# 20 NAs in genonumber, and 16 NAs in genoID, with no overlap between them
+# Elements present in expField but not in the snp Accessions
+setdiff(unique(expField$genoID), snpAccessions)
 
-# I want to compare pedigree from expField to genotype from genoInfo2 since neither have
-# missing values, however they are not quite exactly the same
-# Maybe I could somehow complement this matching with genotype (no NA) from expField and 
-# genonumber from genoInfo2
+# Filter expField for only genotypes found in the snpAccessions dataset
+expField <- expField |>
+  filter(genoID %in% snpAccessions)
 
-# Seeing how many strings in genotype from genoInfo2 are contained in pedigree from expField:
-sum = 0
-for (i in 1:nrow(genoInfo2)){
-  sum = sum + any(str_detect(unique(expField$pedigree), regex(genoInfo2$genotype[i], ignore_case = TRUE)))
-}
+# Dropping levels no longer represented:
+expField <- expField |>
+  droplevels()
 
+# Checking for NAs in the full consolidated experimental dataset
+expField |>
+  is.na() |>
+  colSums()
 
+# NAs only in the responses now, which is manageable with GBLUP
+# We have 454 genotypes left, which is acceptable
+# (The ceiling is 470 given the SNP dataset)
 
+# Saving for posterity
+save(expField, file = here("data", "expField.Rdata"))
 
+#--------------------------------------------------------------------------------------------------#
 
+#### Using basic mixed models to extract heritability measures for each trait ####
 
+load(file = here("data", "expField.Rdata"))
 
+# We filter for plots that were assigned the planting depth of 8 cm, as our interest
+# lies in assessing emergence at sigficant depths
+expFieldDeep <- expField |>
+  filter(depth == 'Deep')
 
+# In this case, our traits of interest are soe, emergence, mesocotyl, rootlength and shootlength
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-###############################################################################
-
-# Checking the number of genotypes in the pedigree column in expField
-unique(compiled$Pedigree)
-# We can see there are 502 unique genotypes
-
-# Let's check for NAs
-sum(is.na(compiled$Pedigree))
-# No NAs
-
-# compiled$Replicate <- as.numeric(gsub("Rep_", "", compiled$Replicate))
-# List of traits to analyze
-colnames(compiled)
-
-# Our traits of interest are Mesocotyl length, Root length, Shoot length, Speed of Emergence, % Emergence, Shoot dry weight,
-# Root dry weight, SOE index and Emergence index
-traits <- colnames(compiled)[c(21, 23, 24, 25, 26, 27, 28, 32, 33)]
-
-# Taking a look at the column data types and entries
-str(compiled)
-
-# Converting to adequate data types (mainly design columns to factors)
-compiled <- compiled |>
-            mutate(across(c(SiteYear:TrialNumber, block, Row, Replicate, Genotype, Pedigree), as.factor))
-
-unique(compiled$SiteYear)
-unique(compiled$SiteName)
-unique(compiled$TrialType)
-unique(compiled$TrialNumber)
-
-## Matching genotype IDs to pedigree/genotype information:
-# Genotype in the Compiled_RDP1 dataset will be matched to SEQ in the LS_means dataset so the former can have the HDRA assay ID column
-# The ID column is important for matching phenotypic data with genotypic data
-
-ls_means <- read_excel(here("data/sandeepOnly/rawData", "LS_means_ragdoll.xlsx"))
-
-# Same approach as the one used in ProtoPhenotypesRagdoll.r, but now with the field trial data
-# Here, instead of replacing the Genotype column, we will create a new one for the assay IDs
-
-# The match function gives us the index of the SEQ in ls_means that corresponds to each Genotype in compiled
-# Reminder that the first row does not count as it is the header, so the first SEQ is in row 2
-target_idx <- match(compiled$Genotype, ls_means$SEQ)
-
-# The GenoID column will have the assay IDs that correspond to each genotype in the field trial dataset, which will be useful for matching with genotypic data later on
-compiled$GenoID <- ls_means$'HDRA genotype assay ID'[target_idx]
-
-# Besides the conversions already done above, let's go ahead and do some more manipulations
-# SiteYear and SiteName only have one type of entry, and TrialType and TrialNumber give the exact same information
-
-compiled <- compiled |> 
-            mutate(GenoID = as.factor(GenoID)) |>
-            select(-c(SiteYear, SiteName, PlotBarcode, TrialUnitComment)) |>
-            filter(!is.na(GenoID) & GenoID != "NA")
-
-
-# Let's also rename some variables for better readability, and drop redundant/unused columns:
-
-compiled <- compiled |>
-            select(-c(TrialType, Sown, Day_5:Day_14, Seed_count)) |>
-            rename(Depth = TrialNumber, ShootWeight = Shoot.dry.wt..g., RootWeight = root.dry.wt..g.)
-
-# save(compiled, file = here("data", "exp_field_filtered.RData"))
-
-# For running the code again:
-# This object is read as "compiled"
-load(file = here("data", "exp_field_filtered.RData"))
-
-# Note: this is actually a split-plot design (genotypes within depth treatments)
-# Depth treatments are whole plots and genotypes (pedigrees) are subplots
-# Note2: there were 2 reps for shallow sowing and 3 reps for deep sowing
+# Creating list of traits to analyze
+traits <- colnames(expField)[colnames(expField) %in% c("soe", "emergence", "mesocotyl", "rootlength", "shootlength")]
 
 ### Estimating heritability with genotype as random for variance component extraction #### 
-
-## Note: this is basically a copy-paste from the ragdoll experiment script
 
 ## Useful to gauge whether genomic prediction (GP) is useful
 ## (if heritability is low, GP might not be effective)
@@ -247,83 +166,53 @@ cullisHerit <- list()
 # Heritability in an alternative way
 altHerit <- list()
 
+# The classification will be by genoID since these values are the ones present in the genotypic dataset
 for (trait in traits) {
-    model <- asreml(as.formula(paste(trait, "~ Depth + Replicate + Replicate:TrialNumber")),
-                    random = ~ Pedigree, 
-                    residual = ~ idv(units), 
-                    data = compiled)
-    pred <- predict(model, classify = "Pedigree")
-
-    # Cullis heritability calculation
-    av_sed <- pred$avsed
-    aved <- av_sed^2
-    vg <- summary(model)$varcomp["Pedigree", "component"]
-    cullisHerit[[trait]] <- 1 - (aved / (2*vg))
-
-    # Alternative way to calculate heritability - Based on error plot variance
-    altHerit[[trait]] <- vpredict(model, h2 ~ V1 / (V1 + (V2/4))) 
+  model <- asreml(as.formula(paste(trait, "~ replication")),
+                  random = ~ genoID, 
+                  residual = ~ idv(units), 
+                  data = expFieldDeep)
+  pred <- predict(model, classify = "genoID")
+  
+  ###  Cullis heritability calculation
+  
+  # Average standard error of difference between the predicted means
+  avsed <- pred$avsed
+  
+  # Average variance
+  aved <- avsed^2
+  
+  # Variance component associated with the genoID variable
+  vg <- summary(model)$varcomp["genoID", "component"]
+  
+  cullisHerit[[trait]] <- 1 - (aved / (2*vg))
+  
+  ### Alternative way to calculate heritability - Based on error plot variance
+  # Divide by 3 due to the number of reps -> average residual error for a given genotype
+  altHerit[[trait]] <- vpredict(model, h2 ~ V1 / (V1 + (V2/3))) 
 }
 
-cullisHerit
-altHerit
 
-#-----------------------------------------------------------------------------------------------------#
-# The results imply the model is a bit off, hence the need to further discuss the experimental design
-# Blocks are nested within replicates
-# Most of the genotypes are not repeated across blocks, appearing only 3 times each in an experiment with 9 blocks
-# Most blocks do appear in both depth (whole plot) treatments, but not all of them -> I will not consider this nested
-# Pedigrees/genotypes treated as fixed effects for BLUEs estimation
-# Even though they were treated as random for heritability estimation
 
-#------------------------------------------------------------------------#
-# # Trying to understand the study design
-# compiled <- compiled |> mutate(block = as.numeric(block))
-# require(desplot)
-# png(filename = here("output", "TestDesplot.png"), width = 800, height = 600, units = "px")
-# desplot(compiled, Replicate ~ block + Row,
-#         col=Row, text=Replicate, cex=1, aspect=511/176,
-#         out1=TrialNumber, out2=block, 
-#         out2.gpar=list(col = "gray50", lwd = 1, lty = 1))
-# dev.off()
-#------------------------------------------------------------------------#
 
-# Blocks were not used for heritability estimation as they were deemed not relevant, but I am inserting them here again
-# Each block
-traits <- colnames(compiled |> 
-                select(SOE, Emergence, mesocotyl_length, root_length, shoot_length, SOE_index, Emergence_index, 
-                ShootWeight, RootWeight))
 
-BLUEsField <- list()
 
-# Auxilliary list to store the names of the genotypes
-auxGenoField <- c()
 
-# Another auxilliary list to store the prediction errors
-# (to be used to weight the values in GBLUP)
-auxErrorField <- list()
 
-for (trait in traits) {
-    # Genotype effect is fixed now as we want to get the adjusted means for each genotype (BLUEs)
-    model <- asreml(as.formula(paste(trait, "~ Replicate + Depth + GenoID + GenoID:Depth")),
-                    random = ~ Replicate:block,
-                    residual = ~ idv(units),
-                    workspace = "2gb",
-                    maxit = 100,
-                    data = compiled)
-    pred <- predict(model, classify = "GenoID")
-    if(trait == traits[1]){
-        auxGenoField <- pred$pvals$GenoID
-    }
-    BLUEsField[[trait]] <- pred$pvals$predicted.value
 
-    auxErrorField[[trait]] <- pred$pvals$std.error
-}
 
-# The BLUEs calculated do not account for spatial corrections, which will be done later (Sandeep claimed there was no significant spatial variation))
-names(auxErrorField) <- paste0(names(BLUEsField), "_Error")
 
-adjMeansField <- cbind(as.data.frame(auxGenoField), as.data.frame(BLUEsField), as.data.frame(auxErrorField))
-save(adjMeansField, file = here("output", "adjMeansField.RData"))
+
+
+
+
+
+
+
+
+
+
+
 
 
 

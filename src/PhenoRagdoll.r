@@ -80,6 +80,11 @@ genoInfo <- read_excel(here("data/sandeepOnly/rawData", "LS_means_ragdoll.xlsx")
                 rename(genotype = Genotype, genonumber = SEQ, subpop = Sub_pop, genoID = 'HDRA genotype assay ID') |>
                 mutate(across(everything(), as.factor))
 
+# Correct some genotype names so they match the 
+# genotypic dataset (e.g. IRIS 313-11949 becomes IRIS_313-11949):
+genoInfo <- genoInfo |> 
+  mutate(genoID = as.factor(str_replace_all(genoID, "IRIS ", "IRIS_")))
+
 # Checking for NAs in genoInfo:
 genoInfo |>
     is.na() |>
@@ -92,29 +97,43 @@ tgtIdx <- match(expRagdoll$genotype, genoInfo$genotype)
 sum(is.na(tgtIdx))
 # There are 4 NAs, meaning 4 genotypes in expRagdoll could not be found among the 504 available in genoInfo
 
-
 # Add the genoID column to the expRagdoll dataset (for eventual use in GBLUP)
-# Then clean genoID of NA values (there is a "NA" string as well)
-# Finally, drop levels that were lost after removing NAs
 expRagdoll <- expRagdoll |>
-                mutate(genoID = genoInfo$genoID[tgtIdx], subpop = genoInfo$subpop[tgtIdx]) |>
-                filter(!genoID %in% c("NA", NA)) |>
-                droplevels()
+                mutate(genoID = genoInfo$genoID[tgtIdx], subpop = genoInfo$subpop[tgtIdx])
 
-# Correct some genotype names so they match the 
-# genotypic dataset (e.g. IRIS 313-11949 becomes IRIS_313-11949)
-expRagdoll <- expRagdoll |> 
-    mutate(genoID = as.factor(str_replace_all(genoID, "IRIS ", "IRIS_")))
+# Let's load the accessions to check if the experimental dataset has samples from all of them
+load(file = here("data", "snpAccessions.RData"))
+
+# Elements present in expRagdoll but not in the snp Accessions
+setdiff(unique(expRagdoll$genoID), snpAccessions)
+
+# Filter expRagdoll for only genotypes found in the snpAccessions dataset
+expRagdoll <- expRagdoll |>
+              filter(genoID %in% snpAccessions)
+
+# Dropping levels no longer represented:
+expRagdoll <- expRagdoll |>
+          droplevels()
 
 # Checking for NAs in the full consolidated experimental dataset
 expRagdoll |>
     is.na() |>
     colSums()
+# There is also a string "NA" category in genoID that we need to check for
+sum(expRagdoll == "NA", na.rm = T)
+# No element in expRagdoll has an "NA" string after the matching
+
+# That leaves us with 462 genotypes, which is not too bad
+# Considering the ceiling is 470
+
 # NAs only in the responses. The G matrix will hopefully bridge this gap
 # by leveraging the shared information across genotypes
 
 # Saving for posterity
 save(expRagdoll, file = here("data", "expRagdoll.Rdata"))
+
+# Let's also save genoInfo so it can be used again
+save(genoInfo, file = here("data", "genoInfo.Rdata"))
 
 #--------------------------------------------------------------------------------------------------#
 
