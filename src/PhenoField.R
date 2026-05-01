@@ -146,9 +146,10 @@ save(expField, file = here("data", "expField.Rdata"))
 load(file = here("data", "expField.Rdata"))
 
 # We filter for plots that were assigned the planting depth of 8 cm, as our interest
-# lies in assessing emergence at sigficant depths
+# lies in assessing emergence at significant depths
 expFieldDeep <- expField |>
-  filter(depth == 'Deep')
+  filter(depth == 'Deep') |>
+  droplevels() # in case some genotype is not represented in the "deep" treatment
 
 # In this case, our traits of interest are soe, emergence, mesocotyl, rootlength and shootlength
 
@@ -192,8 +193,7 @@ for (trait in traits) {
   altHerit[[trait]] <- vpredict(model, h2 ~ V1 / (V1 + (V2/3))) 
 }
 
-
-
+# Cullis seems to yield smaller heritabilities
 
 
 
