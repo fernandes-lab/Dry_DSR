@@ -16,8 +16,12 @@ library(SNPRelate)
 # 
 # BiocManager::install("SNPRelate")
 
-#############################################################################
-
+################################################################################
+#### Building genomic relationship matrix (based on shared genetic material - SNPs)
+# Read SNP data
+# We also want each SNP as a column and each accession as a row
+# This is the full SNP dataset with 2.9 million SNPs,
+# per https://www.frontiersin.org/journals/plant-science/articles/10.3389/fpls.2023.1172816/full
 # Local workflow to extract metadata and SNP doses while the cluster is down:
 
 # Reading snp file
@@ -51,56 +55,6 @@ snpMatrix <- snpMatrix + 1
 save(snpMatrix, file = here("data", "snpMatrix.RData"))
 
 # Proceed to LD pruning section after this (some changes will be made there)
-
-#############################################################################
-
-#### Building genomic relationship matrix (based on shared genetic material - SNPs) ####
-# Read SNP data
-# We also want each SNP as a column and each accession as a row
-# This is the full SNP dataset with 2.9 million SNPs,
-# per https://www.frontiersin.org/journals/plant-science/articles/10.3389/fpls.2023.1172816/full
-#snpData <- t(fread(here("data/sandeepOnly", "sandeep1_numeric.txt")))
-#snpData[1:10, 1:10]
-#dim(snpData)
-# The first five rows are metadata, while the remainder are genotypes
-
-# The very first row is the SNP names
-# The fifth row has only NAs, so it may be excluded
-# unique(snpData[5, ])
-# snpData <- snpData[-5, ]
-
-# Promoting first row to column names
-# Now the column names correspond to SNP names
-#snpData <- row_to_names(snpData, row_num = 1)
-
-# Storing metadata in a separate data frame for later use
-# allele, chromosome and position information
-#metadata <- snpData[1:3, ]
-# Remove whitespaces from metadata rows
-#metadata <- apply(metadata, 2, str_trim)
-
-# Saving metadata file
-#save(metadata, file = here("data", "metadata.RData"))
-
-# Removing metadata rows from main SNP dataset
-# Removing spaces from SNP doses and turning them to numbers
-#snpData <- snpData[-1:-3, ]
-
-# Remove leading and trailing whitespaces
-#snpData <- apply(snpData, 2, str_trim)
-
-# Convert SNP doses to numeric values
-# We want to keep row names intact, hence the list syntax
-#snpData[] <- lapply(snpData, as.numeric)
-
-# Save the processed SNP data for later use
-#save(snpData, file = here("data", "snpData.RData"))
-
-#--------------------------------- Extra --------------------------------------#
-# Extracting rownames from snpData to do some checking with the phenotypic data
-# Saving to memory
-#snpAccessions <- rownames(snpData)
-#save(snpAccessions, file = here("Thesis/Dry_DSR/CarlosReDo/data", "snpAccessions.RData"))
 
 #------------------------------------------------------------------------------------------------------------------------------#
 ################################ LD pruning ###################################################

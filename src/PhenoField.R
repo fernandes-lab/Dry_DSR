@@ -195,16 +195,27 @@ for (trait in traits) {
 
 # Cullis seems to yield smaller heritabilities
 
+#-------------------------------------------------------------------------------
+
+# Checking whether blocking is relevant within each of the original 3 replications
+# Let's focus on only one depth treatment
+expFieldDeep <- expField |> filter(depth == "Deep")
+rm(expField)
+
+with(expFieldDeep, table(block, replication)) 
+with(expFieldDeep, table(genoID, replication)) 
+with(expFieldDeep, table(genoID, block))
+
+# 4 genotypes differ from the expected frequency of 1 per replication
+rowSums(with(expFieldDeep, 
+             table(genoID, replication)))[rowSums(with(expFieldDeep,
+                                        table(genoID, replication))) != 3]
+
+# Each column sums up to the 454 expected genotypes
+with(expFieldDeep, table(genoID, replication)) |> colSums()
 
 
-
-
-
-
-
-
-
-
+# Block effect might be negligible and we only need replication!
 
 
 

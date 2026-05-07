@@ -132,7 +132,7 @@ sum(expRagdoll == "NA", na.rm = T)
 # Saving for posterity
 save(expRagdoll, file = here("data", "expRagdoll.Rdata"))
 
-# Let's also save genoInfo so it can be used again
+# Let's also save genoInfo so it can be used again in PhenoField.r
 save(genoInfo, file = here("data", "genoInfo.Rdata"))
 
 #--------------------------------------------------------------------------------------------------#
