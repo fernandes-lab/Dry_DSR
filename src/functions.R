@@ -1,6 +1,11 @@
 # Function to obtain adjusted means assuming a fixed model structure and different
 # response variables/datasets -> for field/ragdoll experiments
 
+# Note for field data: 
+# Mixed model assuming block has no effect (the genotypes are not carried from
+# one block to another within a single replication, so estimating block effect
+# is meaningless)
+
 adjMeans <- function(dataset, resp_name){
   
   response <- dataset[[resp_name]]
@@ -12,7 +17,7 @@ adjMeans <- function(dataset, resp_name){
   # Obtaining BLUEs
   adjms <- predict(model, classify = "genoID")$pvals
   
-  # Prediction errors matrix:
+  # Squared prediction error (?) matrix:
   # varcov structure of the estimated means across genotypes
   # we expects different genotypes to be uncorrelated in the absence
   # of genetic information
@@ -27,7 +32,7 @@ adjMeans <- function(dataset, resp_name){
   
   # Heatmap to visually assess the correlation structure between genotypes
   # without any genomic input
-  heatmap(mat)
+  # heatmap(mat) # May be uncommented if need be
   
   # Per Piepho's paper, since we have an almost perfectly balanced design, in
   # a single environment, calculating weights by the inverse of the squared 
@@ -40,18 +45,7 @@ adjMeans <- function(dataset, resp_name){
   adjms <- adjms |>
     select(genoID, predicted.value, weight) |>
     rename(genotype = genoID, BLUE = predicted.value)
-    
-    # Extract dataset name
-    data_name <- deparse(substitute(dataset))
-    
-    # Extracts the first 5 characters of the dataset name after "exp"
-    initDataset <- str_sub(data_name, start = 4, end = 8) |> str_to_title()
-    
-    # Extracts the first 5 characters of the response name
-    initResp <- str_sub(resp_name, start = 1, end = 5) |> str_to_title()
-    
-    path = paste0("adj", initDataset, initResp, ".RData")
   
-  save(adjms, file = here("output", path))
+  return(adjms)
 }
 
