@@ -195,6 +195,9 @@ for (trait in traits) {
 
 # Cullis seems to yield smaller heritabilities
 
+h2CullisField <- cullisHerit
+save(h2CullisField, file = here("output", "cullisHeritField.RData"))
+
 #-------------------------------------------------------------------------------
 
 # Checking whether blocking is relevant within each of the original 3 replications

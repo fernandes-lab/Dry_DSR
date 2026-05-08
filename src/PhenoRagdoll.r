@@ -139,6 +139,8 @@ save(genoInfo, file = here("data", "genoInfo.Rdata"))
 
 #### Using basic mixed models to extract heritability measures for each trait ####
 
+load(file = here("data", "expRagdoll.Rdata"))
+
 # In this case, our traits of interest are coleoptile, mesocotyl, rootlength and shootlength
 
 # Creating list of traits to analyze (CL_means through SL_means)
@@ -182,5 +184,6 @@ for (trait in traits) {
 }
 
 # Both heritability estimation methods yielded similar resuls to Sandeep's
-
+h2CullisRagdoll <- cullisHerit
+save(h2CullisRagdoll, file = here("output", "cullisHeritRagdoll.RData"))
 

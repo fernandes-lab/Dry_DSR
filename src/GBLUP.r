@@ -38,8 +38,9 @@ rm(expField)
 # one block to another within a single replication, so estimating block effect
 # is meaningless)
 
-adjFieldEmerg <- adjMeans(expFieldDeep, "emergence")
+adjFieldEmerg <- adjMeans(expFieldDeep, "emergence", blck = "block")
 save(adjFieldEmerg, file = here("output", "adjFieldEmerg.RData"))
+rm(expFieldDeep)
 
 ######## Ragdoll adjusted means ########
 
@@ -51,4 +52,55 @@ save(adjRagdollMeso, file = here("output", "adjRagdollMeso.RData"))
 
 adjRagdollColeo <- adjMeans(expRagdoll, "coleoptile")
 save(adjRagdollColeo, file = here("output", "adjRagdollColeo.RData"))
+rm(expRagdoll)
+
+######################## GBLUP (second stage) ##################################
+
+### Loading the G matrix
+load(here("output", "G.RData"))
+
+### Checking genetic variance structure:
+
+sum(diag(G))/nrow(G)
+# A value well above 1 points to a high level of inbreeding in the population
+# which tracks because rice is predominantly self-pollinating
+
+heatmap(G)
+# We can see big correlation regions
+# PCA would probably be interesting for this dataset
+# especially when conducting GWAS
+
+########## Single-trait GP ##########
+
+#### Field emergence
+
+load(file = here("output", "adjFieldEmerg.RData"))
+
+# Calling function that performs CV and returns a data frame with the GEBVs
+# and BLUEs
+
+rstlsEmerField <- cv2stage(adjFieldEmerg, G, k = 5)
+
+# Loading Cullis heritability for predictive ability assessment
+load(file = here("output", "cullisHeritField.RData"))
+h2CullisEmerField <- h2CullisField$emergence
+
+# Predictive ability as the ratio between the correlation of GEBVs and BLUEs
+# and the Cullis heritability for emergence in the field
+PAfieldEmergence <- cor(rstlsEmerField$GEBV, rstlsEmerField$BLUE)/
+  sqrt(h2CullisEmerField)                  
+
+#### Ragdoll mesocotyl (will double as an indirect selection)
+
+# Coleoptile will be used for two-trait GP later
+
+# We will also have to eventually assess (for indirect selection)
+# how the GEBVs in the ragdoll experiment correlate with the BLUEs for
+# emergence in the field
+
+load(file = here("output", "adjRagdollMeso.RData"))
+
+rstlsMesoRagdoll <- cv2stage(adjRagdollMeso, G, k = 5)
+
+# How do I go about indirect selection????
 
