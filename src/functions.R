@@ -104,11 +104,11 @@ cv2stage <- function(dataset, matG, k){
     trainData[trainData$genotype %in% valFolds[[f]], "BLUE"] <- NA
     
     # Filter trainData for only genotypes present in the G matrix
-    trainData <- trainData[trainData$genotype %in% rownames(G), ]
+    trainData <- trainData[trainData$genotype %in% rownames(matG), ]
     
     # Then filter G for only genotypes present in trainData
     # I wonder if this also orders the elements of G accordingly...
-    Gfilt <- G[as.character(trainData$genotype), as.character(trainData$genotype)]
+    Gfilt <- matG[as.character(trainData$genotype), as.character(trainData$genotype)]
     
     # Simple modeling structure (for now)
     
