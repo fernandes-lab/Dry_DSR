@@ -156,7 +156,7 @@ with(MT_ISdf, cor(RagColeo, RagMeso)) # Coleoptile w/ mesocotyl
 # mesocotyl as the primary trait (for CV) because its correlation with field
 # emergence is higher than the coleoptile's correlation with field emergence
 
-# Multi-trait CV:
+# Multi-trait GBLUP:
 
 # First of all, for multi-trait asreml, the data must be in long format to
 # specify the weights correctly
@@ -164,100 +164,93 @@ with(MT_ISdf, cor(RagColeo, RagMeso)) # Coleoptile w/ mesocotyl
 # Then pivot to longer format and finally pivot the result to wider format
 # In the end, we want a column for the trait, another for the BLUEs, and another
 # for the weights
-longMT_ISdf <- MT_ISdf |>
-               select(-c(FieldEmer, wtEmerg)) |>
-               pivot_longer(
-                 !genotype, 
-                 names_to = c("typeOfValue", "trait"),
-                 names_pattern = "(wt|Rag)(.*)",
-                 values_to = "blueOrweight") |>
-                 pivot_wider(
-                   id_cols = c(genotype, trait),
-                   names_from = typeOfValue,
-                   values_from = blueOrweight
-                 )
+longMT_IS <- MT_ISdf |>
+            select(-c(FieldEmer, wtEmerg))
 
-# Renaming the columns appropriately
-longMT_ISdf <- longMT_ISdf |>
-               select(genotype, Rag, wt, trait) |>
-               rename(BLUE = Rag, weight = wt) |>
-               mutate(trait = as.factor(trait))
-               
-# Ordering the data according to the traits (Mesocotyl and Coleoptile)
-# All coleoptile values come before all mesocotyl values
-longMT_ISdf <- longMT_ISdf |>
-              arrange(trait)
+# Auxiliary data frames to help organize the process of pivoting to long format
+# We will pivot each individually to long format, then merge them
 
-genotypes <- MT_ISdf$genotype
+# Data frame with BLUEs only
+traitAux1 <- longMT_IS |>
+            select(genotype, RagMeso, RagColeo)
 
-# Number of distinct genotypes in the dataset
-n <- length(genotypes)
+traitAux1 <- traitAux1 |>
+            pivot_longer(
+              !genotype,
+              names_to = "trait",
+              # Captures only the "Meso" or "coleo" part
+              names_pattern = "Rag(.*)",
+              values_to = "BLUE"
+            )
 
-## Create folds:
-k = 5
+# Data frame with weights only
+traitAux2 <- longMT_IS |>
+  select(genotype, wtMeso, wtColeo)
 
-# Fold assignment for each genotype
-# Split the 1:n sequence into k folds and them randomly arranges them
-# across the range of the dataset
-folds <- sample(cut(1:n, breaks = k, labels = FALSE))
+traitAux2 <- traitAux2 |>
+  pivot_longer(
+    !genotype,
+    names_to = "trait",
+    # Captures only the "Meso" or "coleo" part
+    names_pattern = "wt(.*)",
+    values_to = "weight"
+  )
 
-# Genotype validation folds
-# Each member of the list is a subset of the genotypes column
-# pertaining to that specific fold assignment
-valFolds <- lapply(1:k, function(i) genotypes[folds == i])
+# Merging the data frames back into a single one
+longMT_IS <- merge(traitAux1, traitAux2, by = c("genotype", "trait"))
+rm(traitAux1, traitAux2)
 
-# Data frame to store the results
-gpDF <- data.frame()
+# Converting "trait" column to factor
+longMT_IS <- longMT_IS |>
+             mutate(trait = as.factor(trait))
 
-# Loop over folds (basically loops over validation folds)
-# It will usually be a 80/20 split, so 5 folds
-# 4 for training, 1 for testing
-for(f in 1:k){
-  trainData <- MT_ISdf
-  # Masks the BLUEs for genotypes present in the f-th validation
-  # fold, f = 1, 2, ..., k, so they are absent from training the model
-  # In this case, the BLUEs for both traits (mesocotyl and coleoptile)
-  # are masked
-  trainData[trainData$genotype %in% valFolds[[f]], 
-            c("RagMeso", "RagColeo")] <- NA
-  
-  # Filter trainData for only genotypes present in the G matrix
-  trainData <- trainData[trainData$genotype %in% rownames(G), ]
-  
-  # Then filter G for only genotypes present in trainData
-  # I wonder if this also orders the elements of G accordingly...
-  Gfilt <- G[as.character(trainData$genotype), as.character(trainData$genotype)]
-  
-  # Blueprint for CV in two-trait scenarios (example of multi-trait)
-  MT_GBLUPmodel <- asreml(fixed = BLUE ~ trait,
-                       random = ~ corgh(trait):vm(genotype, Gfilt),
-                       weights = weight,
-                       residual = ~ dsum(~ units | trait),
-                       data = longMT_ISdf)
-  
-  # Predicted values
-  predVals <- predict(MT_GBLUPmodel, classify = "trait:genotype")$pvals
-  
-  # Filtering the predicted values for only those present in the
-  # (current) validation fold
-  predVals <- predVals[predVals$genotype %in% valFolds[[f]], ]
-  
-  # Merge the predicted (GEBV) values to the original dataset
-  # keeping only the rows relevant to the current fold
-  predMerged <- merge(predVals, MT_ISdf[, c("genotype", "RagMeso", "RagColeo")], 
-                      by = "genotype")
-  
-  # Naming the GEBV column accordingly
-  colnames(predMerged)[2:3] <- c("GEBVmeso", "GEBVcoleo")
-  
-  # Append the rows with the GEBVs and BLUEs to the data frame storing
-  # the results of the genomic prediction
-  gpDF <- rbind(gpDF, predMerged)
-  
-}
+# Arrange the data so that all rows with a given trait are followed by all
+# rows with the other
+longMT_IS <- longMT_IS |>
+  arrange(trait)
 
+# Loading the G matrix again
+load(here("output", "G.RData"))
 
+# From this point onwards, it would be useful to have a function 
+# for cross-validation (CV)
+# We can use longMT_IS and the G matrix as arguments for the function
 
+#--------------- Function modularizes this with CV ----------------------------#
 
+# Filter G according to the genotypes found in the dataset
+Gfilt <- G[rownames(G) %in% MT_ISdf$genotype,
+           colnames(G) %in% MT_ISdf$genotype]
+
+# Bivariate GBLUP model
+MT_GBLUPmodel <- asreml(fixed = BLUE ~ trait,
+                     random = ~ corgh(trait):vm(genotype, Gfilt),
+                     weights = weight,
+                     residual = ~ dsum(~ units | trait),
+                     data = longMT_IS)
+
+# Predict for each trait "within" a genotype
+predVals <- predict(MT_GBLUPmodel, classify = "genotype:trait")$pvals
+
+# Stack one trait on top of the other in the predVals dataframe
+predVals <- predVals |>
+  arrange(trait)
+
+# Merge predVals with dataset with the BLUEs
+predMerged <- merge(predVals[,c("genotype","trait", "predicted.value")], 
+                    longMT_IS[,c("trait","genotype","BLUE")], by=c("genotype", "trait"))
+
+predMerged <- predMerged |>
+              rename(GEBV = predicted.value)
+
+# Pivoting predMerged to wide format for better understading
+predMerged <- predMerged |>
+              pivot_wider(
+                id_cols = genotype,
+                names_from = trait, 
+                values_from = c(GEBV, BLUE)
+              )
+#------------------------------------------------------------------------------#
+testCV_MT <- cv2stageMT(longMT_IS, G, k = 5)
 
 
