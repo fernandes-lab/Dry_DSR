@@ -55,6 +55,36 @@ adjRagdollColeo <- adjMeans(expRagdoll, "coleoptile")
 save(adjRagdollColeo, file = here("output", "adjRagdollColeo.RData"))
 rm(expRagdoll)
 
+############## Stratified Cross-Validation Setup ############################
+
+# First we must map each genotype to a specific subpopulation
+# Loading the original experimental datasets with the subpopulation information:
+
+load(here("output", "expField.Rdata"))
+load(here("output", "expRagdoll.Rdata"))
+
+# We will consolidate the genotype-subpop rows from both data sources 
+# into a single dataset
+popAux1 <- expField |>
+  select(genoID, subpop) |>
+  distinct(genoID, .keep_all = TRUE)
+rm(expField)
+
+popAux2 <- expRagdoll |>
+  select(genoID, subpop) |>
+  distinct(genoID, .keep_all = TRUE)
+rm(expRagdoll)
+
+genoPopMap <- merge(popAux1 |> select(genoID), popAux2, by = "genoID")
+rm(popAux1, popAux2)
+
+genoPopMap <- genoPopMap |>
+  rename(genotype = genoID) |>
+  droplevels()
+
+# Saving map to memory
+save(genoPopMap, file = here("output", "genoPopMap.RData"))
+
 ######################## GBLUP (second stage) ##################################
 
 ### Loading the G matrix
@@ -82,6 +112,10 @@ load(file = here("output", "adjFieldEmerg.RData"))
 
 rstlsEmerField <- cv2stage(adjFieldEmerg, G, k = 5)
 
+# Stratified CV approach:
+load(file = here("output", "genoPopMap.RData"))
+rstlsEmerField <- str_cv2stage(adjFieldEmerg, G, k = 5, genoPopMap)
+
 # Loading Cullis heritability for predictive ability assessment
 load(file = here("output", "cullisHeritField.RData"))
 h2CullisEmerField <- h2CullisField$emergence
@@ -103,6 +137,10 @@ accFieldEmergence <- cor(rstlsEmerField$GEBV, rstlsEmerField$BLUE)/
 load(file = here("output", "adjRagdollMeso.RData"))
 
 rstlsMesoRagdoll <- cv2stage(adjRagdollMeso, G, k = 5)
+
+# Stratified CV approach:
+load(file = here("output", "genoPopMap.RData"))
+rstlsMesoRagdoll <- str_cv2stage(adjRagdollMeso, G, k = 5, genoPopMap)
 
 # To evaluate the prediction accuracy for the indirect selection approach,
 # we will assess the correlation between the lab mesocotyl GEBVs and the field 
@@ -217,6 +255,9 @@ load(here("output", "G.RData"))
 # We can use longMT_IS and the G matrix as arguments for the function
 CV_MTdf <- cv2stageMT(longMT_IS, G, k = 5)
 
+# Stratified CV approach:
+CV_MTdf <- str_cv2stageMT(longMT_IS, G, k = 5, genoPopMap)
+
 # Loading Cullis heritability for predictive ability assessment
 load(file = here("output", "cullisHeritField.RData"))
 
@@ -232,3 +273,10 @@ rm(h2CullisField)
 
 accIS_ML_CL <- cor(MLCL_ISdf$GEBV_Meso, MLCL_ISdf$FieldEmer)/
   sqrt(h2CullisEmerField) 
+
+### TO DO: 
+# Stratified sampling may be integrated into the original functions
+# GWAS for major/minor QTL split
+
+
+
