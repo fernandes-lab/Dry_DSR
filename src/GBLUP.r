@@ -115,7 +115,7 @@ rstlsMesoRagdoll <- cv2stage(adjRagdollMeso, G, k = 5)
 ISdf <- merge(rstlsMesoRagdoll |> select(genotype, GEBV), 
               adjFieldEmerg |> select(genotype, BLUE), by = "genotype")
 
-# Calculating prediction accuract:
+# Calculating prediction accuracy:
 # Note: the value indicates that Sandeep only calculated the correlation
 # without dividing by Cullis heritability (he calculated predictive )
 accIS_MESO <- cor(ISdf$GEBV, ISdf$BLUE)/
@@ -212,45 +212,23 @@ longMT_IS <- longMT_IS |>
 # Loading the G matrix again
 load(here("output", "G.RData"))
 
-# From this point onwards, it would be useful to have a function 
+# From this point onwards, it is useful to have a function 
 # for cross-validation (CV)
 # We can use longMT_IS and the G matrix as arguments for the function
+CV_MTdf <- cv2stageMT(longMT_IS, G, k = 5)
 
-#--------------- Function modularizes this with CV ----------------------------#
+# Loading Cullis heritability for predictive ability assessment
+load(file = here("output", "cullisHeritField.RData"))
 
-# Filter G according to the genotypes found in the dataset
-Gfilt <- G[rownames(G) %in% MT_ISdf$genotype,
-           colnames(G) %in% MT_ISdf$genotype]
+# Data frame with the common genotypes, plus the relevant GEBVs and BLUEs
+# FieldEmer represents the field emergence BLUEs
+MLCL_ISdf <- merge(CV_MTdf |> select(genotype, GEBV_Meso), 
+              MT_ISdf |> select(genotype, FieldEmer), by = "genotype")
 
-# Bivariate GBLUP model
-MT_GBLUPmodel <- asreml(fixed = BLUE ~ trait,
-                     random = ~ corgh(trait):vm(genotype, Gfilt),
-                     weights = weight,
-                     residual = ~ dsum(~ units | trait),
-                     data = longMT_IS)
+# Assessing prediction accuracy for mesocotyl + coleoptile (ragdoll) relative
+# to field emergence, with mesocotyl as the primary proxy trait:
+h2CullisEmerField <- h2CullisField$emergence
+rm(h2CullisField)
 
-# Predict for each trait "within" a genotype
-predVals <- predict(MT_GBLUPmodel, classify = "genotype:trait")$pvals
-
-# Stack one trait on top of the other in the predVals dataframe
-predVals <- predVals |>
-  arrange(trait)
-
-# Merge predVals with dataset with the BLUEs
-predMerged <- merge(predVals[,c("genotype","trait", "predicted.value")], 
-                    longMT_IS[,c("trait","genotype","BLUE")], by=c("genotype", "trait"))
-
-predMerged <- predMerged |>
-              rename(GEBV = predicted.value)
-
-# Pivoting predMerged to wide format for better understading
-predMerged <- predMerged |>
-              pivot_wider(
-                id_cols = genotype,
-                names_from = trait, 
-                values_from = c(GEBV, BLUE)
-              )
-#------------------------------------------------------------------------------#
-testCV_MT <- cv2stageMT(longMT_IS, G, k = 5)
-
-
+accIS_ML_CL <- cor(MLCL_ISdf$GEBV_Meso, MLCL_ISdf$FieldEmer)/
+  sqrt(h2CullisEmerField) 

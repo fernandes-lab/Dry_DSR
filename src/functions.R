@@ -64,7 +64,7 @@ adjMeans <- function(dataset, resp_name, blck = NULL){
   return(adjms)
 }
 
-
+#------------------------------------------------------------------------------#
 # Function to perform cross-validation on the dataset 
 # with the BLUEs (adjusted means)
 # The arguments are the adjusted means dataset, the G matrix, and the
@@ -144,6 +144,7 @@ cv2stage <- function(dataset, matG, k){
   return(gpDF)
 }
 
+#------------------------------------------------------------------------------#
 # Multi-trait cross validation
 
 cv2stageMT <- function(dataset, matG, k){
