@@ -55,7 +55,7 @@ adjRagdollColeo <- adjMeans(expRagdoll, "coleoptile")
 save(adjRagdollColeo, file = here("output", "adjRagdollColeo.RData"))
 rm(expRagdoll)
 
-############## Stratified Cross-Validation Setup ############################
+############## Subpop Strats ############################
 
 # First we must map each genotype to a specific subpopulation
 # Loading the original experimental datasets with the subpopulation information:
@@ -112,10 +112,6 @@ load(file = here("output", "adjFieldEmerg.RData"))
 
 rstlsEmerField <- cv2stage(adjFieldEmerg, G, k = 5)
 
-# Stratified CV approach:
-load(file = here("output", "genoPopMap.RData"))
-rstlsEmerField <- str_cv2stage(adjFieldEmerg, G, k = 5, genoPopMap)
-
 # Loading Cullis heritability for predictive ability assessment
 load(file = here("output", "cullisHeritField.RData"))
 h2CullisEmerField <- h2CullisField$emergence
@@ -137,10 +133,6 @@ accFieldEmergence <- cor(rstlsEmerField$GEBV, rstlsEmerField$BLUE)/
 load(file = here("output", "adjRagdollMeso.RData"))
 
 rstlsMesoRagdoll <- cv2stage(adjRagdollMeso, G, k = 5)
-
-# Stratified CV approach:
-load(file = here("output", "genoPopMap.RData"))
-rstlsMesoRagdoll <- str_cv2stage(adjRagdollMeso, G, k = 5, genoPopMap)
 
 # To evaluate the prediction accuracy for the indirect selection approach,
 # we will assess the correlation between the lab mesocotyl GEBVs and the field 
@@ -255,9 +247,6 @@ load(here("output", "G.RData"))
 # We can use longMT_IS and the G matrix as arguments for the function
 CV_MTdf <- cv2stageMT(longMT_IS, G, k = 5)
 
-# Stratified CV approach:
-CV_MTdf <- str_cv2stageMT(longMT_IS, G, k = 5, genoPopMap)
-
 # Loading Cullis heritability for predictive ability assessment
 load(file = here("output", "cullisHeritField.RData"))
 
@@ -277,6 +266,77 @@ accIS_ML_CL <- cor(MLCL_ISdf$GEBV_Meso, MLCL_ISdf$FieldEmer)/
 ### TO DO: 
 # Stratified sampling may be integrated into the original functions
 # GWAS for major/minor QTL split
+
+############# Index combining mesocotyl and coleoptile ################
+
+# We will use the same MT_ISdf dataset built for the multi-trait
+# genomic prediction approach
+# It contains the BLUEs for mesocotyl and coleoptile from the lab 
+# experiment, and for emergence in the field experiment
+
+# The criteria for choosing the best linear combination will be the
+# correlation between the GEBVs of the trait and field emergence
+
+# Remove columns related to the field experiment
+# and build a dataset to be fed into the index building
+# algorithm
+preIdx <- MT_ISdf |>
+          select(-c(FieldEmer, wtEmerg))
+
+# Weights to be tried for the traits
+wIdx <- seq(0, 1, by = 0.01)
+
+# Standardize the trait columns in preIdx
+# So their combination does not unfairly favor the one
+# with larger variance solely due to scale
+preIdx <- preIdx |>
+          mutate_at(c("RagMeso", "RagColeo"), function(x) scale(x))
+
+# The weight columns refer to the estimation errors when obtaining
+# BLUEs, so they will be kept the same
+
+# Vector to store prediction accuracies for each weight setup
+accs <- numeric()
+
+# Loading field emergence heritability for accuracy scaling
+load(file = here("output", "cullisHeritField.RData"))
+h2CullisEmerField <- h2CullisField$emergence
+rm(h2CullisField)
+
+for (i in wIdx){
+  # Index variable
+  IdxVar <- i * preIdx$RagMeso + (1 - i) * preIdx$RagColeo
+  
+  # Index variable weight for GBLUP
+  wtIdx <- 1/((i^2)/preIdx$wtMeso + ((1 - i)^2)/preIdx$wtColeo)
+  
+  # Generating data frame to be fed to cv2stage function:
+  # The data frame must be in genotype-BLUE-weight format
+  IdxDF <- data.frame(genotype = preIdx$genotype,
+                      BLUE = IdxVar,
+                      weight = wtIdx)
+  
+  load(here("output", "G.RData"))
+  
+  # Performing GBLUP with the index variable as response
+  IdxGBLUP <- cv2stage(IdxDF, G, k = 5)
+  
+  # Joining GBLUP dataset to field emergence BLUEs
+  IS_Idx <- merge(IdxGBLUP |> select(genotype, GEBV), 
+                adjFieldEmerg |> select(genotype, BLUE), 
+                by = "genotype")
+  
+  # Calculating prediction accuracy for indirect selection
+  # with index variable
+  accIS_Idx <- cor(IS_Idx$GEBV, IS_Idx$BLUE)/
+    sqrt(h2CullisEmerField) 
+  
+  accs <- c(accs, accIS_Idx)
+}
+
+# Obtaining best index weight combination
+bestIdxWt <- wIdx[which.max(accs)] # 0.6 mesocotyl / 0.4 coleoptile
+bestAcc <- max(accs)
 
 
 
