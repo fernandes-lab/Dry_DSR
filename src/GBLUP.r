@@ -303,6 +303,9 @@ load(file = here("output", "cullisHeritField.RData"))
 h2CullisEmerField <- h2CullisField$emergence
 rm(h2CullisField)
 
+# Loading G matrix (again)
+load(here("output", "G.RData"))
+
 for (i in wIdx){
   # Index variable
   IdxVar <- i * preIdx$RagMeso + (1 - i) * preIdx$RagColeo
@@ -315,8 +318,6 @@ for (i in wIdx){
   IdxDF <- data.frame(genotype = preIdx$genotype,
                       BLUE = IdxVar,
                       weight = wtIdx)
-  
-  load(here("output", "G.RData"))
   
   # Performing GBLUP with the index variable as response
   IdxGBLUP <- cv2stage(IdxDF, G, k = 5)
@@ -338,5 +339,77 @@ for (i in wIdx){
 bestIdxWt <- wIdx[which.max(accs)] # 0.6 mesocotyl / 0.4 coleoptile
 bestAcc <- max(accs)
 
+#######################################################
+#                 Major QTL as fixed effect           #
+#######################################################
+
+# The following code relies on the GWAS.R script
+# "mlid0051837994" was identified as a SNP with roughly
+# 10% as the percentage of variance explained (PVE)
+# Rex Bernardo's paper points out that QTLs with >=
+# 10% PVE and traits with around 80% heritability
+# provide minor improvements to the model
+# However, I am unsure how well this translates to 
+# an indirect selection scenario, as the GWAS was
+# performed with respect to field emergence
+
+# The construction of the new G matrix without the 
+# fixed effect SNP is performed in the GenoAnalysis.R
+# script
+
+# Loading the new G matrix
+load(file = here("output", "G_NoMajor.RData"))
+
+# The approach will be to use the index variable selected
+# above:
+
+IdxVar <- 0.6 * preIdx$RagMeso + 0.4 * preIdx$RagColeo
+
+wtIdx <- 1/((0.6^2)/preIdx$wtMeso + (0.4^2)/preIdx$wtColeo)
+
+IdxDF <- data.frame(genotype = preIdx$genotype,
+                    BLUE = IdxVar,
+                    weight = wtIdx)
+
+# Now we must add the column with the major SNP dosages across
+# the genotypes
+
+# Loading SNP dosage per genotype after pruning
+load(file = here("output", "snpPruned.RData"))
+
+# Column with only the major effect SNP
+snpMajor <- snpPruned[, colnames(snpPruned) == "mlid0051837994"]
+
+# Keeping the genotype information
+snpMajor <- cbind(rownames(snpPruned), snpMajor)
+colnames(snpMajor)[1] <- "genotype"
+rownames(snpMajor) <- NULL
 
 
+# Merging IdxDF to snpMajor
+IdxMajor <- merge(IdxDF, snpMajor, by = "genotype")
+
+# snpMajor column must be numeric
+IdxMajor <- IdxMajor |>
+            mutate(snpMajor = as.numeric(snpMajor))
+
+# Performing GBLUP with the index variable as response
+IdxGBLUP_Major <- cv2stageFixed(IdxMajor, G_NoMajor, k = 5)
+
+# Joining GBLUP dataset to field emergence BLUEs
+load(file = here("output", "adjFieldEmerg.RData"))
+IS_IdxMajor <- merge(IdxGBLUP_Major |> select(genotype, GEBV), 
+                adjFieldEmerg |> select(genotype, BLUE), 
+                by = "genotype")
+
+# Loading field emergence heritability for accuracy scaling
+load(file = here("output", "cullisHeritField.RData"))
+h2CullisEmerField <- h2CullisField$emergence
+rm(h2CullisField)
+
+# Calculating prediction accuracy for indirect selection
+# with index variable and major SNP fixed effect
+accIS_IdxMajor <- cor(IS_IdxMajor$GEBV, IS_IdxMajor$BLUE)/
+  sqrt(h2CullisEmerField) 
+
+# Accuracy remained basically the same...

@@ -51,3 +51,8 @@ gwas <- GAPIT(
 )
 
 # Results stored in "./output/GWAS" folder
+# mlid0051837994 -> 9.873088629% PVE
+# Add the above SNP as a fixed effect to the model,
+# while simultaneously removing it from the genomic
+# information matrix computation (?)
+

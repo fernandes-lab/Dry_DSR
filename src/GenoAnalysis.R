@@ -137,3 +137,24 @@ sum(diag(G)/nrow(G)) - 1
 # The genetic basis of rice is more narrow, which ties back to its high inbreeding coefficient
 # (All the correlation observed is genetic, as it comes from the G matrix)
 # Consider doing PCA later to see the population structure!!
+
+
+########################################################
+#      G matrix building without large effect SNP      #
+########################################################
+
+# Loading SNP dosage per genotype after pruning
+load(file = here("output", "snpPruned.RData"))
+
+# Checking if the major effect SNP is in the dataset
+"mlid0051837994" %in% colnames(snpPruned)
+
+# SNP dataset without major effect SNP
+snpNoMajor <- snpPruned[, colnames(snpPruned) != "mlid0051837994"]
+
+# Checking again to be sure of the removal
+"mlid0051837994" %in% colnames(snpNoMajor)
+
+# Generating and saving new G matrix without the major SNP
+G_NoMajor <- Gmatrix(snpNoMajor, maf = 0)
+save(G_NoMajor, file = here("output", "G_NoMajor.RData"))
