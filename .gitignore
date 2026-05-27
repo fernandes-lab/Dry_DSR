@@ -1,6 +1,9 @@
 data/*/*.csv
 data/*/*.txt
 data/*/*.vcf
+data/sandeepOnly/.*
+
+src/sandeepOnly/.*
 
 output/*.csv
 
