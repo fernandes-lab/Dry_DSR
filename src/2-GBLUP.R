@@ -88,6 +88,16 @@ adjRagdollMeso <- adjMeans(expRagdoll, "mesocotyl")
 adjRagdollColeo <- adjMeans(expRagdoll, "coleoptile")
 # save(adjRagdollColeo, file = here("output", "adjRagdollColeo.RData"))
 
+# For the sake of building an index combining all responses
+# collected in the ragdoll experiment, we will also obtain
+# adjusted means for root length and shoot length
+
+adjRagdollRoot <- adjMeans(expRagdoll, "rootlength")
+# save(adjRagdollRoot, file = here("output", "adjRagdollRoot.RData"))
+
+adjRagdollShoot <- adjMeans(expRagdoll, "shootlength")
+# save(adjRagdollShoot, file = here("output", "adjRagdollShoot.RData"))
+
 ###############################################################
 ##                     GBLUP (second stage)                  ##
 ###############################################################
@@ -105,9 +115,9 @@ adjRagdollColeo <- adjMeans(expRagdoll, "coleoptile")
 # especially when conducting GWAS
 
 # List to store prediction accuracies for each modeling approach
-accs_List <- vector(mode = "list", length = 5)
-names(accs_List) <- c("accField", "accMesoIS", "accMT_IS", 
-                     "accIdx", "accIdxFixed")
+accs_List <- vector(mode = "list", length = 6)
+#names(accs_List) <- c("accField", "accMesoIS", "accMT_IS", 
+                     #"accIdx", "accIdxFixed", "accIdx4t")
 
 ######################### Single-trait GP #####################
 
@@ -251,7 +261,7 @@ accs_List["accMT_IS"] <- accIS_ML_CL
 
 ###################### Index variable GP ########################
 
-# We will use the same MT_ISdf dataset built for the multi-trait
+# We will use the same MT_IS dataset built for the multi-trait
 # genomic prediction approach
 # It contains the BLUEs for mesocotyl and coleoptile from the lab 
 # experiment, and for emergence in the field experiment
@@ -385,6 +395,77 @@ accs_List[["accIdxFixed"]] <- accIS_IdxMajor
 # Accuracy remained basically the same...
 # Repeating CV multiple times within the respective functions 
 # would be ideal!!
+
+#--------- Adding shoot length and root length to index -------#
+
+# We will use the preIdx dataset and merge it with adjRagdollRoot
+# and adjRagdollShoot
+
+expandPreIdx <- merge(preIdx, adjRagdollRoot |> 
+            select(genotype, RagRoot = BLUE, wtRoot = weight), 
+            by = "genotype") |>
+            merge(adjRagdollShoot |> 
+            select(genotype, RagShoot = BLUE, wtShoot = weight),
+            by = "genotype") |>
+            droplevels()
+
+# I will save the above dataset because it may speed up future
+# developments of this analysis
+save(expandPreIdx, file = here("output", "expandPreIdx.RData"))
+
+# Since now we have four traits, the max grid approach used earlier
+# is not ideal. 
+# One alternative approach is to regress emergence on the four variables
+# and obtain the coefficients from that. 
+# Standard OLS is less computationally expensive than running GBLUP 
+# in an loop, especially for four traits, so we will work with that
+# for now
+# For added simplicity, the BLUE weights won't be incorporated,
+# which is reasonable given their relatively small ranges
+
+# Single dataset with the target field trait and the four ragdoll 
+# traits
+
+LS_Idx <- merge(expandPreIdx |>
+                  select(genotype, meso = RagMeso, coleo = RagColeo,
+                         root = RagRoot, shoot = RagShoot), 
+                adjFieldEmerg |> 
+                  select(genotype, emerg = BLUE),
+                by = "genotype") |>
+  droplevels()
+
+modCoefIdx <- lm(emerg ~ meso + coleo + root + shoot,
+                 data = LS_Idx)
+# plot(modCoefIdx)
+
+# Index variable vector (turned into a data frame column)
+IdxVar4t <- as.matrix(LS_Idx |> select(-c(genotype, emerg))) %*%
+                      modCoefIdx$coefficients[-1] |>
+                      as.data.frame()
+
+# Appending genotype names to index variable vector
+IdxVar4t <- cbind(LS_Idx$genotype, IdxVar4t) |>
+            rename(genotype = `LS_Idx$genotype`, index = V1)
+
+# Obtaining the GEBVs for the new index:
+# Renaming the index column to "BLUE" to make it compatible
+# with the cv2stage function, even though 
+# that's not exactly what it means
+IdxVar4t <- IdxVar4t |> rename(BLUE = index)
+IdxGBLUP4t <- cv2stage(IdxVar4t, G, k = 5)
+
+# Joining GBLUP dataset to field emergence BLUEs
+IS_Idx4t <- merge(IdxGBLUP4t |> select(genotype, GEBV), 
+                adjFieldEmerg |> select(genotype, BLUE), 
+                by = "genotype")
+
+# Calculating accuracy for the new, broader, index
+accIS_Idx4t <- cor(IS_Idx4t$GEBV, IS_Idx4t$BLUE)/
+  sqrt(h2CullisEmerField) 
+
+# The meso + coleo index combination continues to yield the best
+# model prediction accuracy (or is it predictive ability?)
+accs_List[["accIdx4t"]] <- accIS_Idx4t
 
 ###############################################################
 ##                    Saving model accuracies                ##

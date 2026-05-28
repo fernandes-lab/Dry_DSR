@@ -44,13 +44,19 @@ cv2stage <- function(dataset, matG, k){
     Gfilt <- matG[as.character(trainData$genotype), as.character(trainData$genotype)]
     
     # Simple modeling structure (for now)
-    
+    if("weight" %in% names(trainData)){
     GBLUPmodel <- asreml(fixed = BLUE ~ 1,
                          # Variance structure of the genotypes
                          random = ~ vm(genotype, Gfilt),
                          weights = weight,
                          residual = ~ idv(units),
                          data = trainData)
+    }else{
+      GBLUPmodel <- asreml(fixed = BLUE ~ 1,
+                           random = ~ vm(genotype, Gfilt),
+                           residual = ~ idv(units),
+                           data = trainData)
+    }
     
     # Predicted values
     predVals <- predict(GBLUPmodel, classify = "genotype")$pvals
