@@ -417,11 +417,14 @@ save(expandPreIdx, file = here("output", "expandPreIdx.RData"))
 # is not ideal. 
 # One alternative approach is to regress emergence on the four variables
 # and obtain the coefficients from that. 
-# Standard OLS is less computationally expensive than running GBLUP 
+# Standard LS is less computationally expensive than running GBLUP 
 # in an loop, especially for four traits, so we will work with that
 # for now
 # For added simplicity, the BLUE weights won't be incorporated,
 # which is reasonable given their relatively small ranges
+
+# To account for the target trait prediction errors when building
+# the BLUEs, we will use weighted least squares (WLS)
 
 # Single dataset with the target field trait and the four ragdoll 
 # traits
@@ -430,22 +433,42 @@ LS_Idx <- merge(expandPreIdx |>
                   select(genotype, meso = RagMeso, coleo = RagColeo,
                          root = RagRoot, shoot = RagShoot), 
                 adjFieldEmerg |> 
-                  select(genotype, emerg = BLUE),
+                  select(genotype, emerg = BLUE, emrWt = weight),
                 by = "genotype") |>
   droplevels()
 
-modCoefIdx <- lm(emerg ~ meso + coleo + root + shoot,
+# The proxy trait coefficients are obtaining through OLS
+modCoefIdx <- lm(emerg ~ meso + coleo + root + shoot, 
+                 weights = emrWt,
                  data = LS_Idx)
-# plot(modCoefIdx)
+
+# plot(modCoefIdx) # Quick residual diagnostics
 
 # Index variable vector (turned into a data frame column)
-IdxVar4t <- as.matrix(LS_Idx |> select(-c(genotype, emerg))) %*%
+IdxVar4t <- as.matrix(LS_Idx |> select(-c(genotype, emerg, emrWt))) %*%
                       modCoefIdx$coefficients[-1] |>
                       as.data.frame()
+
+# Calculating index weight vector from the 4 proxy traits weight
+# vectors:
+
+# Data frame with only the proxy traits' weights
+wtDF <- expandPreIdx |> select(wtMeso, wtColeo, wtRoot, wtShoot)
+
+# Converting wtDF to a matrix and multiplying it by the squared coefficient
+# vector (excluding the intercept)
+# The index weights will be the inverse of the above calculation
+wtIdx4t <- 1 / (as.matrix(wtDF) %*%  (modCoefIdx$coefficients[-1]^2))
 
 # Appending genotype names to index variable vector
 IdxVar4t <- cbind(LS_Idx$genotype, IdxVar4t) |>
             rename(genotype = `LS_Idx$genotype`, index = V1)
+
+# Adding index weights column to the IdxVar4t data frame
+IdxVar4t <- cbind(IdxVar4t, wtIdx4t)
+
+# Changing weight column name accordingly
+IdxVar4t <- IdxVar4t |> rename(weight = wtIdx4t)
 
 # Obtaining the GEBVs for the new index:
 # Renaming the index column to "BLUE" to make it compatible
@@ -466,6 +489,15 @@ accIS_Idx4t <- cor(IS_Idx4t$GEBV, IS_Idx4t$BLUE)/
 # The meso + coleo index combination continues to yield the best
 # model prediction accuracy (or is it predictive ability?)
 accs_List[["accIdx4t"]] <- accIS_Idx4t
+
+#----------------- Partial Least Squares Approach -------------#
+
+# We will generate a component variable from the four lab variables
+# and see if it acts as a good predictor for field emergence
+# This approach is unlikely to bring any improvement to the accuracy
+# because the proxy traits are not highly correlated
+
+# TO DO!
 
 ###############################################################
 ##                    Saving model accuracies                ##
