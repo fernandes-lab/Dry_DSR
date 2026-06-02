@@ -2,6 +2,8 @@ library(here)
 library(asreml)
 library(dplyr)
 library(tidyr)
+library(pls)
+library(ggplot2)
 
 # Loading functions from the functions folder
 sapply(list.files(path = here("functions"), 
@@ -497,12 +499,79 @@ accs_List[["accIdx4t"]] <- accIS_Idx4t
 # This approach is unlikely to bring any improvement to the accuracy
 # because the proxy traits are not highly correlated
 
-# TO DO!
+# Including the weights does not seem to affect the results much, 
+# so I will perform PLS without accounting for weights (for now)
+
+# LS_Idx will be reused as it contains the lab proxy traits BLUEs as
+# well as the BLUEs for field emergence
+
+# The function for PLSR natively performs cross-validation (CV)
+# with 10 folds by default
+
+modPLS4t <- plsr(emerg ~ meso + coleo + root + shoot, 
+                 data = LS_Idx, scale = TRUE, validation = "CV")
+
+summary(modPLS4t)
+validationplot(modPLS4t)
+# 1 component seems to be enough, although the % variance
+# explained is not even 30%
+
+# As an index variable, we will use the first component, building
+# it from the coefficients returned by the model
+
+# Index variable vector (turned into a data frame column)
+Idx4tPLS <- as.matrix(LS_Idx |> select(-c(genotype, emerg, emrWt))) %*%
+  modPLS4t[["coefficients"]][1:4] |>
+  as.data.frame()
+
+# Appending genotype names to index variable vector
+Idx4tPLS <- cbind(LS_Idx$genotype, Idx4tPLS) |>
+  rename(genotype = `LS_Idx$genotype`, index = V1)
+
+# Renaming index column to be compatible with the GBLUP CV function
+# and running the CV
+Idx4tPLS <- Idx4tPLS |> rename(BLUE = index)
+IdxGBLUP4tPLS <- cv2stage(Idx4tPLS, G, k = 5)
+
+# Joining GBLUP dataset to field emergence BLUEs
+IS_Idx4tPLS <- merge(IdxGBLUP4tPLS |> select(genotype, GEBV), 
+                  adjFieldEmerg |> select(genotype, BLUE), 
+                  by = "genotype")
+
+# Calculating accuracy for the new, broader, index
+accIS_Idx4tPLS <- cor(IS_Idx4tPLS$GEBV, IS_Idx4tPLS$BLUE)/
+  sqrt(h2CullisEmerField)
+
+accs_List[["accIdx4tPLS"]] <- accIS_Idx4tPLS
+
+# The accuracy was really close to the index combination between
+# only mesocotyl and coleoptile, the best among the IS scenarios
+# so far 
+# I wonder if somehow putting the weights into the model would
+# improve it...
+# Weighting actually caused a decrease ina accuracy, so it won't be
+# implemented
 
 ###############################################################
 ##                    Saving model accuracies                ##
 ###############################################################
 
 save(accs_List, file = here("output", "modelAccs.RData"))
+
+# Plotting accuracies calculated so far
+accs <- data.frame(
+  Model = names(accs_List),
+  Accuracy = unlist(accs_List)
+)
+
+# Bar chart
+ggplot(accs, aes(x = Model, y = Accuracy, fill = Model)) +
+  geom_col() +
+  theme_minimal() +
+  labs(title = "Prediction Accuracies (Baseline + IS)", y = "Accuracy") +
+  theme(axis.text.x = element_blank()) +
+  geom_text(aes(label = round(Accuracy, 2), vjust = -0.2, size = 2))
+
+# Clean plot
 
 
