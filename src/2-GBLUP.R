@@ -4,6 +4,7 @@ library(dplyr)
 library(tidyr)
 library(pls)
 library(ggplot2)
+library(glmnet)
 
 # Loading functions from the functions folder
 sapply(list.files(path = here("functions"), 
@@ -549,8 +550,72 @@ accs_List[["accIdx4tPLS"]] <- accIS_Idx4tPLS
 # so far 
 # I wonder if somehow putting the weights into the model would
 # improve it...
-# Weighting actually caused a decrease ina accuracy, so it won't be
+# Weighting actually caused a decrease in accuracy, so it won't be
 # implemented
+
+# ---------------- Ridge Regression Approach -----------------#
+
+# The variables perceived as less relevant to the response will
+# have their coefficients shrunk to near 0 
+# We will figure out how to deal with weights later...
+
+# Dataset with all four traits' BLUEs and weights, and the same
+# for field emergence
+RidgeDF <- merge(expandPreIdx |>
+                  select(genotype, meso = RagMeso, wtMeso, 
+                         coleo = RagColeo, wtColeo,
+                         root = RagRoot, wtRoot,
+                         shoot = RagShoot, wtShoot), 
+                adjFieldEmerg |> 
+                  select(genotype, emerg = BLUE, emrWt = weight),
+                by = "genotype") |>
+  droplevels()
+
+# CV to find the best lambda value (the function natively performs
+# 10-fold CV):
+
+y <- RidgeDF$emerg
+x <- data.matrix(RidgeDF |> select(meso, coleo, root, shoot))
+
+cv_ridge <- cv.glmnet(x, y, alpha = 0)
+
+# Finding best lambda by minimizing the mean squared error
+# (MSE)
+(best_lambda <- cv_ridge$lambda.min)
+
+# To obtain the coefficients for the index, we will run a model
+# with the best lambda
+
+best_ridge <- glmnet(x, y, alpha = 0, lambda = best_lambda)
+coef(best_ridge)
+
+# Calculating the index 
+IdxRidge <- as.matrix(RidgeDF|> select(-c(genotype, wtMeso,
+                                          wtColeo, wtRoot,
+                                          wtShoot, emerg,
+                                          emrWt))) %*%
+  coef(best_ridge)[-1] |>
+  as.data.frame()
+
+# Appending genotype names to index variable vector
+IdxRidge <- cbind(RidgeDF$genotype, IdxRidge) |>
+  rename(genotype = `RidgeDF$genotype`, index = V1)
+
+# Renaming index column to be compatible with the GBLUP CV function
+# and running the CV
+IdxRidge <- IdxRidge |> rename(BLUE = index)
+IdxGBLUPRidge <- cv2stage(IdxRidge, G, k = 5)
+
+# Matching GEBVs and emergence BLUEs to the same genotypes
+IdxRidgeConsol <- merge(IdxGBLUPRidge |> select(genotype, GEBV),
+                        RidgeDF |> select(genotype, emerg),
+                        by = "genotype")
+
+# Calculating accuracy for the new index
+accIS_IdxRidge <- cor(IdxRidgeConsol$GEBV, IdxRidgeConsol$emerg)/
+  sqrt(h2CullisEmerField)
+
+accs_List[["accIS_IdxRidge"]] <- accIS_IdxRidge
 
 ###############################################################
 ##                    Saving model accuracies                ##
@@ -570,8 +635,8 @@ ggplot(accs, aes(x = Model, y = Accuracy, fill = Model)) +
   theme_minimal() +
   labs(title = "Prediction Accuracies (Baseline + IS)", y = "Accuracy") +
   theme(axis.text.x = element_blank()) +
-  geom_text(aes(label = round(Accuracy, 2), vjust = -0.2, size = 2))
+  geom_text(aes(label = round(Accuracy, 2), vjust = -0.08))
 
-# Clean plot
+# Clean plot later
 
 
