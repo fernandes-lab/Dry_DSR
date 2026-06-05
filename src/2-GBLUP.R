@@ -118,9 +118,8 @@ adjRagdollShoot <- adjMeans(expRagdoll, "shootlength")
 # especially when conducting GWAS
 
 # List to store prediction accuracies for each modeling approach
+# 6 is just the initial size
 accs_List <- vector(mode = "list", length = 6)
-#names(accs_List) <- c("accField", "accMesoIS", "accMT_IS", 
-                     #"accIdx", "accIdxFixed", "accIdx4t")
 
 ######################### Single-trait GP #####################
 
@@ -317,7 +316,8 @@ for (i in wIdx){
   # Calculating prediction accuracy for indirect selection
   # with index variable
   accIS_Idx <- cor(IS_Idx$GEBV, IS_Idx$BLUE)/
-    sqrt(h2CullisEmerField) 
+    sqrt(h2CullisEmerField) # is a positive constant, 
+                            # so could have been left out
   
   accs <- c(accs, accIS_Idx)
 }
@@ -638,5 +638,6 @@ ggplot(accs, aes(x = Model, y = Accuracy, fill = Model)) +
   geom_text(aes(label = round(Accuracy, 2), vjust = -0.08))
 
 # Clean plot later
-
+# The best index so far was optimized in a grid search, not through
+# a model...
 
