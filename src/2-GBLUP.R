@@ -31,34 +31,11 @@ expFieldDeep <- expField |> filter(depth == "Deep")
 
 # Loading Cullis heritability for predictive ability assessment
 # Note: heritability related to field emergence only
+# The heritability is basically the "ceiling" for our predictive
+# ability in the context of GBLUP
 load(file = here("output", "cullisHeritField.RData"))
 h2CullisEmerField <- h2CullisField$emergence
 rm(h2CullisField)
-
-################# Subpopulation Information ###################
-
-# Keeping subpopulation information for possible future uses
-# First we must map each genotype to a specific subpopulation
-
-# We will consolidate the genotype-subpop rows from both data sources 
-# into a single dataset
-popAux1 <- expField |>
-  select(genoID, subpop) |>
-  distinct(genoID, .keep_all = TRUE)
-
-popAux2 <- expRagdoll |>
-  select(genoID, subpop) |>
-  distinct(genoID, .keep_all = TRUE)
-
-genoPopMap <- merge(popAux1 |> select(genoID), popAux2, by = "genoID")
-rm(popAux1, popAux2)
-
-genoPopMap <- genoPopMap |>
-  rename(genotype = genoID) |>
-  droplevels()
-
-# Saving map to memory
-save(genoPopMap, file = here("output", "genoPopMap.RData"))
 
 ###############################################################
 ##                Adjusted means (first stage)               ##
@@ -118,8 +95,7 @@ adjRagdollShoot <- adjMeans(expRagdoll, "shootlength")
 # especially when conducting GWAS
 
 # List to store prediction accuracies for each modeling approach
-# 6 is just the initial size
-accs_List <- vector(mode = "list", length = 6)
+accs_List <- vector(mode = "list")
 
 ######################### Single-trait GP #####################
 
@@ -130,14 +106,9 @@ accs_List <- vector(mode = "list", length = 6)
 # Calling function that performs CV and returns a data frame with the GEBVs
 # and BLUEs
 
-GP_EmerField <- cv2stage(adjFieldEmerg, G, k = 5)
+accEmerField <- cv2stage(adjFieldEmerg, G, k = 5, nrep = 10)
 
-# Predictive ability as the ratio between the correlation of GEBVs and BLUEs
-# and the Cullis heritability for emergence in the field
-accFieldEmergence <- cor(GP_EmerField$GEBV, GP_EmerField$BLUE)/
-  sqrt(h2CullisEmerField)
-
-accs_List[["accField"]] <- accFieldEmergence
+accs_List[["accField"]] <- accEmerField
 
 #------------ Ragdoll mesocotyl (indirect selection - IS) -----#
 
@@ -147,7 +118,8 @@ accs_List[["accField"]] <- accFieldEmergence
 # how the GEBVs in the ragdoll experiment correlate with the BLUEs for
 # emergence in the field
 
-GP_MesoRagdoll <- cv2stage(adjRagdollMeso, G, k = 5)
+accMesoIS <- cv2stageIS(adjRagdollMeso, adjFieldEmerg, G, k = 5,
+                        nrep = 10)
 
 # To evaluate the prediction accuracy for the indirect selection approach,
 # we will assess the correlation between the lab mesocotyl GEBVs and the field 
@@ -156,18 +128,7 @@ GP_MesoRagdoll <- cv2stage(adjRagdollMeso, G, k = 5)
 # Remember: our target trait is emergence, so we will divide by its heritability
 # (in the field)
 
-# Data frame with the common genotypes, plus the relevant GEBVs and BLUEs
-GP_MesoRagdoll <- merge(GP_MesoRagdoll |> select(genotype, GEBV), 
-              adjFieldEmerg |> select(genotype, BLUE), 
-              by = "genotype")
-
-# Calculating prediction accuracy:
-# Note: the value indicates that Sandeep only calculated the correlation
-# without dividing by Cullis heritability (he calculated predictive )
-accIS_MESO <- cor(GP_MesoRagdoll$GEBV, GP_MesoRagdoll$BLUE)/
-  sqrt(h2CullisEmerField) 
-
-accs_List[["accMesoIS"]] <- accIS_MESO
+accs_List[["accMesoIS"]] <- accMesoIS
 
 ######################### Multi-trait GP ########################
 
