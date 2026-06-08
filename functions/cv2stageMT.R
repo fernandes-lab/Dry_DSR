@@ -1,12 +1,88 @@
 # Multi-trait cross validation
+# This function is limited to two traits
 
-cv2stageMT <- function(dataset, matG, k){
+# For multi-trait asreml, the data must be in long format to
+# specify the weights correctly
+# We first remove the columns associated with the field experiment
+# Then pivot to longer format and finally pivot the result to wider format
+# In the end, we want a column for the trait, another for the BLUEs, and another
+# for the weights
+
+# Auxiliary data frames to help organize the process of pivoting to long format
+# We will pivot each individually to long format, then merge them
+
+cv2stageMT <- function(dataset1, dataset2, tgtset, matG, k, nrep){
+  
+  # Dataset1 represents the first proxy trait (mesocotyl)
+  # Dataset2 represents the second proxy trait (coleoptile)
+  # tgtset represents the target trait (emergence)
+  dataset0 <- merge(dataset1 |> select(genotype, RagMeso = BLUE, 
+                                          wtMeso = weight),
+                 dataset2 |> select(genotype, RagColeo = BLUE,
+                                           wtColeo = weight), 
+                 by = "genotype") |>
+    merge(tgtset |> select(genotype, FieldEmer = BLUE,
+                                  wtEmerg = weight), 
+          by = "genotype") |>
+    droplevels()
+  
+  # The merge with the target trait dataset was merely to ensure
+  # consistency of genotypes across the datasets
+  dataset <- dataset0 |>
+    select(-c(FieldEmer, wtEmerg))
+  
+  # For multi-trait GBLUP with weights, the data must be in long format
+  # We go through a few auxiliary steps to achieve that in a clean(er)
+  # way
+  
+  # Data frame with BLUEs only
+  traitAux1 <- dataset |>
+    select(genotype, RagMeso, RagColeo)
+  
+  traitAux1 <- traitAux1 |>
+    pivot_longer(
+      !genotype,
+      names_to = "trait",
+      # Captures only the "Meso" or "Coleo" part
+      names_pattern = "Rag(.*)",
+      values_to = "BLUE"
+    )
+  
+  # Data frame with weights only
+  traitAux2 <- dataset |>
+    select(genotype, wtMeso, wtColeo)
+  
+  traitAux2 <- traitAux2 |>
+    pivot_longer(
+      !genotype,
+      names_to = "trait",
+      # Captures only the "Meso" or "Coleo" part
+      names_pattern = "wt(.*)",
+      values_to = "weight"
+    )
+  
+  # Final dataset in long format
+  longData <- merge(traitAux1, traitAux2, by = c("genotype", "trait"))
+  
+  # Converting "trait" column to factor
+  longData <- longData |>
+    mutate(trait = as.factor(trait))
+  
+  # Arrange the data so that all rows with a given trait are followed by all
+  # rows with the other
+  longData <- longData |>
+    arrange(trait)
+  
   # Unique genotypes in the dataset
-  genotypes <- unique(dataset$genotype)
+  genotypes <- unique(longData$genotype)
   
   # Number of distinct genotypes in the dataset
   n <- length(genotypes)
   
+  # Vector of accuracies for each repetition
+  accs <- numeric()
+  
+  for (j in 1:nrep){
   ## Create folds:
   
   # Fold assignment for each genotype
@@ -26,7 +102,7 @@ cv2stageMT <- function(dataset, matG, k){
   # It will usually be a 80/20 split, so 5 folds
   # 4 for training, 1 for testing
   for(f in 1:k){
-    trainData <- dataset
+    trainData <- longData
     # Masks the BLUEs for genotypes present in the f-th validation
     # fold, f = 1, 2, ..., k, so they are absent from training the model
     # This should mask the BLUEs for both traits
@@ -59,7 +135,7 @@ cv2stageMT <- function(dataset, matG, k){
     
     # Merge predVals with dataset with the BLUEs
     predMerged <- merge(predVals[,c("genotype","trait", "predicted.value")], 
-                        longMT_IS[,c("trait","genotype","BLUE")], 
+                        longData[,c("trait","genotype","BLUE")], 
                         by=c("genotype", "trait"))
     
     # Renaming predicted values column to GEBVs
@@ -80,6 +156,17 @@ cv2stageMT <- function(dataset, matG, k){
     
   }
   
+  # Data frame merging the (main) proxy trait with the target trait
+  # via the common genotypes, plus the relevant GEBVs and BLUEs
+  gpDF <- merge(gpDF |> select(genotype, GEBV_Meso), 
+                dataset0 |> select(genotype, FieldEmer), 
+                by = "genotype")
+  
+  accs[j] <- cor(gpDF$GEBV_Meso, gpDF$FieldEmer)
+  }
   # Return the "genomic prediction" data frame with GEBVs and BLUEs
-  return(gpDF)
+  Z <- qnorm(0.025, lower.tail = F)
+  IC <- mean(accs) + c(-1, 1) * sd(accs)/sqrt(nrep)
+  
+  return(IC)
 }
