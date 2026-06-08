@@ -164,19 +164,12 @@ accs_List[["accIdx"]] <- accIdx_ML_CL
 # fixed effect SNP is performed in the "1-GenoAnalysis.R"
 # script
 
+# Index selection will be performed again because the best index
+# without the major QTL as a fixed effectmight be different from 
+# the one with it
+
 # Loading the new G matrix
 load(file = here("output", "G_NoMajor.RData"))
-
-# The approach will be to use the index variable selected
-# above:
-
-IdxVar <- bestIdxWt * preIdx$RagMeso + (1-bestIdxWt) * preIdx$RagColeo
-
-wtIdx <- 1/((bestIdxWt^2)/preIdx$wtMeso + ((1-bestIdxWt)^2)/preIdx$wtColeo)
-
-IdxDF <- data.frame(genotype = preIdx$genotype,
-                    BLUE = IdxVar,
-                    weight = wtIdx)
 
 # Now we must add the column with the major SNP dosages across
 # the genotypes
@@ -184,39 +177,15 @@ IdxDF <- data.frame(genotype = preIdx$genotype,
 # Loading SNP dosage per genotype after pruning
 load(file = here("output", "snpPruned.RData"))
 
-# Column with only the major effect SNP
-snpMajor <- snpPruned[, colnames(snpPruned) == "mlid0051837994"]
-
-# Keeping the genotype information
-snpMajor <- cbind(rownames(snpPruned), snpMajor)
-colnames(snpMajor)[1] <- "genotype"
-rownames(snpMajor) <- NULL
-
-# Merging IdxDF to snpMajor
-IdxMajor <- merge(IdxDF, snpMajor, by = "genotype")
-
-# snpMajor column must be numeric
-IdxMajor <- IdxMajor |>
-            mutate(snpMajor = as.numeric(snpMajor))
-
-# Performing GBLUP with the index variable as response
-IdxGBLUP_Major <- cv2stageFixed(IdxMajor, G_NoMajor, k = 5)
-
-# Joining GBLUP dataset to field emergence BLUEs
-IS_IdxMajor <- merge(IdxGBLUP_Major |> select(genotype, GEBV), 
-                adjFieldEmerg |> select(genotype, BLUE), 
-                by = "genotype")
-
-# Calculating prediction accuracy for indirect selection
-# with index variable and major SNP fixed effect
-accIS_IdxMajor <- cor(IS_IdxMajor$GEBV, IS_IdxMajor$BLUE)/
-  sqrt(h2CullisEmerField) 
-
-accs_List[["accIdxFixed"]] <- accIS_IdxMajor
-
 # Accuracy remained basically the same...
 # Repeating CV multiple times within the respective functions 
 # would be ideal!!
+
+accIdxMajor <- cv2stageIdxMajor(adjRagdollMeso, adjRagdollColeo,
+                                adjFieldEmerg, snpPruned, G_NoMajor, 
+                                k = 5, nrep = 10)
+
+accs_List[["accIdxMajor"]] <- accIdxMajor
 
 #--------- Adding shoot length and root length to index -------#
 
