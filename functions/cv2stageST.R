@@ -6,7 +6,7 @@
 # This function is for standard genomic selection, other versions will be
 # developed later
 
-cv2stage <- function(dataset, matG, k, nrep){
+cv2stageST <- function(dataset, matG, k, nrep){
   
   # Filter dataset for only genotypes present in the G matrix
   dataset <- dataset[dataset$genotype %in% rownames(matG), ]

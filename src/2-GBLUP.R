@@ -98,7 +98,7 @@ accs_List <- vector(mode = "list")
 # Calling function that performs CV and returns a data frame with the GEBVs
 # and BLUEs
 
-accEmerField <- cv2stage(adjFieldEmerg, G, k = 5, nrep = 10)
+accEmerField <- cv2stageST(adjFieldEmerg, G, k = 5, nrep = 10)
 
 accs_List[["accField"]] <- accEmerField
 
@@ -110,7 +110,7 @@ accs_List[["accField"]] <- accEmerField
 # how the GEBVs in the ragdoll experiment correlate with the BLUEs for
 # emergence in the field
 
-accMesoIS <- cv2stageIS(adjRagdollMeso, adjFieldEmerg, G, k = 5,
+accMesoIS <- cv2stageST_IS(adjRagdollMeso, adjFieldEmerg, G, k = 5,
                         nrep = 10)
 
 # To evaluate the prediction accuracy for the indirect selection approach,
@@ -133,19 +133,78 @@ accs_List[["accMesoIS"]] <- accMesoIS
 # mesocotyl as the primary trait (for CV) because its correlation with field
 # emergence is higher than the coleoptile's correlation with field emergence
 
-accIS_ML_CL <- cv2stageMT(adjRagdollMeso, adjRagdollColeo,
+accIS_ML_CL <- cv2stageMT_IS(adjRagdollMeso, adjRagdollColeo,
                           adjFieldEmerg, G, k = 5, nrep = 10)
 
 accs_List[["accMT_IS"]] <- accIS_ML_CL
+
+
+
+
+
+
+
+
+#----------------------------------------------------------------
+# SECTION SUBJECT TO BIG CHANGES
 
 ###################### Index variable GP ########################
 
 # The criteria for choosing the best linear combination will be the
 # correlation between the GEBVs of the trait and field emergence
-accIdx_ML_CL <- cv2stageIdx(adjRagdollMeso, adjRagdollColeo,
-                           adjFieldEmerg, G, k = 5, nrep = 10)
 
-accs_List[["accIdx"]] <- accIdx_ML_CL
+# Returns the weight of mesocotyl in the index linear combination
+# as well as the accuracy calculated via simple CV
+Idx2t <- IdxSel2t(adjRagdollMeso, adjRagdollColeo,
+                  adjFieldEmerg, G, k = 5)
+
+# Now, with the weights, we can use single-trait GBLUP for indirect
+# selection with the index variable
+
+# Building data frame to be fed to single-trait indirect selection
+# function
+preIdx <- merge(adjRagdollMeso |> select(genotype, RagMeso = BLUE, 
+                                     wtMeso = weight),
+                  adjRagdollColeo |> select(genotype, RagColeo = BLUE,
+                                     wtColeo = weight), 
+                  by = "genotype") |>
+  merge(adjFieldEmerg |> select(genotype, FieldEmer = BLUE,
+                         wtEmerg = weight), 
+        by = "genotype") |>
+  droplevels()
+
+# Remove columns related to the field experiment
+# and build a dataset to be fed into the index building
+# algorithm
+preIdx <- preIdx |>
+  select(-c(FieldEmer, wtEmerg))
+
+# Standardize the trait columns in preIdx
+# So their combination does not unfairly favor the one
+# with larger variance solely due to scale
+preIdx <- preIdx |>
+  mutate_at(c("RagMeso", "RagColeo"), function(x) scale(x))
+
+#-------------------------------------------------------------
+
+w <- Idx2t$bestWt
+
+# Index variable
+IdxVar <- w * preIdx$RagMeso + (1 - w) * preIdx$RagColeo
+
+# Index variable weight for GBLUP
+wtIdx <- 1/((w^2)/preIdx$wtMeso + ((1 - w)^2)/preIdx$wtColeo)
+
+# Generating data frame to be fed to cv2stage function:
+# The data frame must be in genotype-BLUE-weight format
+IdxDF <- data.frame(genotype = preIdx$genotype,
+                    BLUE = IdxVar,
+                    weight = wtIdx)
+rm(IdxVar, wtIdx)
+
+accIdx <- cv2stageST_IS(IdxDF, adjFieldEmerg, G, k = 5, nrep = 10)
+
+accs_List[["accIdx"]] <- accIdx
 
 #------------------ Major QTL as fixed effect -------------------#
 
@@ -177,239 +236,36 @@ load(file = here("output", "G_NoMajor.RData"))
 # Loading SNP dosage per genotype after pruning
 load(file = here("output", "snpPruned.RData"))
 
-# Accuracy remained basically the same...
-# Repeating CV multiple times within the respective functions 
-# would be ideal!!
+Idx2tFixed <- IdxSel2tFixed(adjRagdollMeso, adjRagdollColeo,
+                  adjFieldEmerg, snpPruned, G_NoMajor, k = 5)
 
-accIdxMajor <- cv2stageIdxMajor(adjRagdollMeso, adjRagdollColeo,
-                                adjFieldEmerg, snpPruned, G_NoMajor, 
-                                k = 5, nrep = 10)
+wF <- Idx2tFixed$bestWt # Kinda funky, need to double-check
+
+# Using the same preIdx dataset from before:
+
+# Index variable
+IdxVar <- wF * preIdx$RagMeso + (1 - wF) * preIdx$RagColeo
+
+# Index variable weight for GBLUP
+wtIdx <- 1/((wF^2)/preIdx$wtMeso + ((1 - wF)^2)/preIdx$wtColeo)
+
+# Generating data frame to be fed to cv2stage function:
+# The data frame must be in genotype-BLUE-weight format
+IdxDF <- data.frame(genotype = preIdx$genotype,
+                    BLUE = IdxVar,
+                    weight = wtIdx)
+rm(IdxVar, wtIdx)
+
+accIdxMajor <- cv2stageST_IS_Fixed(IdxDF, adjFieldEmerg, snpPruned, 
+                              G_NoMajor, k = 5, nrep = 10)
 
 accs_List[["accIdxMajor"]] <- accIdxMajor
-
-#--------- Adding shoot length and root length to index -------#
-
-# We will use the preIdx dataset and merge it with adjRagdollRoot
-# and adjRagdollShoot
-
-expandPreIdx <- merge(preIdx, adjRagdollRoot |> 
-            select(genotype, RagRoot = BLUE, wtRoot = weight), 
-            by = "genotype") |>
-            merge(adjRagdollShoot |> 
-            select(genotype, RagShoot = BLUE, wtShoot = weight),
-            by = "genotype") |>
-            droplevels()
-
-# I will save the above dataset because it may speed up future
-# developments of this analysis
-save(expandPreIdx, file = here("output", "expandPreIdx.RData"))
-
-# Since now we have four traits, the max grid approach used earlier
-# is not ideal. 
-# One alternative approach is to regress emergence on the four variables
-# and obtain the coefficients from that. 
-# Standard LS is less computationally expensive than running GBLUP 
-# in an loop, especially for four traits, so we will work with that
-# for now
-# For added simplicity, the BLUE weights won't be incorporated,
-# which is reasonable given their relatively small ranges
-
-# To account for the target trait prediction errors when building
-# the BLUEs, we will use weighted least squares (WLS)
-
-# Single dataset with the target field trait and the four ragdoll 
-# traits
-
-LS_Idx <- merge(expandPreIdx |>
-                  select(genotype, meso = RagMeso, coleo = RagColeo,
-                         root = RagRoot, shoot = RagShoot), 
-                adjFieldEmerg |> 
-                  select(genotype, emerg = BLUE, emrWt = weight),
-                by = "genotype") |>
-  droplevels()
-
-# The proxy trait coefficients are obtaining through OLS
-modCoefIdx <- lm(emerg ~ meso + coleo + root + shoot, 
-                 weights = emrWt,
-                 data = LS_Idx)
-
-# plot(modCoefIdx) # Quick residual diagnostics
-
-# Index variable vector (turned into a data frame column)
-IdxVar4t <- as.matrix(LS_Idx |> select(-c(genotype, emerg, emrWt))) %*%
-                      modCoefIdx$coefficients[-1] |>
-                      as.data.frame()
-
-# Calculating index weight vector from the 4 proxy traits weight
-# vectors:
-
-# Data frame with only the proxy traits' weights
-wtDF <- expandPreIdx |> select(wtMeso, wtColeo, wtRoot, wtShoot)
-
-# Converting wtDF to a matrix and multiplying it by the squared coefficient
-# vector (excluding the intercept)
-# The index weights will be the inverse of the above calculation
-wtIdx4t <- 1 / (as.matrix(wtDF) %*%  (modCoefIdx$coefficients[-1]^2))
-
-# Appending genotype names to index variable vector
-IdxVar4t <- cbind(LS_Idx$genotype, IdxVar4t) |>
-            rename(genotype = `LS_Idx$genotype`, index = V1)
-
-# Adding index weights column to the IdxVar4t data frame
-IdxVar4t <- cbind(IdxVar4t, wtIdx4t)
-
-# Changing weight column name accordingly
-IdxVar4t <- IdxVar4t |> rename(weight = wtIdx4t)
-
-# Obtaining the GEBVs for the new index:
-# Renaming the index column to "BLUE" to make it compatible
-# with the cv2stage function, even though 
-# that's not exactly what it means
-IdxVar4t <- IdxVar4t |> rename(BLUE = index)
-IdxGBLUP4t <- cv2stage(IdxVar4t, G, k = 5)
-
-# Joining GBLUP dataset to field emergence BLUEs
-IS_Idx4t <- merge(IdxGBLUP4t |> select(genotype, GEBV), 
-                adjFieldEmerg |> select(genotype, BLUE), 
-                by = "genotype")
-
-# Calculating accuracy for the new, broader, index
-accIS_Idx4t <- cor(IS_Idx4t$GEBV, IS_Idx4t$BLUE)/
-  sqrt(h2CullisEmerField) 
-
-# The meso + coleo index combination continues to yield the best
-# model prediction accuracy (or is it predictive ability?)
-accs_List[["accIdx4t"]] <- accIS_Idx4t
-
-#----------------- Partial Least Squares Approach -------------#
-
-# We will generate a component variable from the four lab variables
-# and see if it acts as a good predictor for field emergence
-# This approach is unlikely to bring any improvement to the accuracy
-# because the proxy traits are not highly correlated
-
-# Including the weights does not seem to affect the results much, 
-# so I will perform PLS without accounting for weights (for now)
-
-# LS_Idx will be reused as it contains the lab proxy traits BLUEs as
-# well as the BLUEs for field emergence
-
-# The function for PLSR natively performs cross-validation (CV)
-# with 10 folds by default
-
-modPLS4t <- plsr(emerg ~ meso + coleo + root + shoot, 
-                 data = LS_Idx, scale = TRUE, validation = "CV")
-
-summary(modPLS4t)
-validationplot(modPLS4t)
-# 1 component seems to be enough, although the % variance
-# explained is not even 30%
-
-# As an index variable, we will use the first component, building
-# it from the coefficients returned by the model
-
-# Index variable vector (turned into a data frame column)
-Idx4tPLS <- as.matrix(LS_Idx |> select(-c(genotype, emerg, emrWt))) %*%
-  modPLS4t[["coefficients"]][1:4] |>
-  as.data.frame()
-
-# Appending genotype names to index variable vector
-Idx4tPLS <- cbind(LS_Idx$genotype, Idx4tPLS) |>
-  rename(genotype = `LS_Idx$genotype`, index = V1)
-
-# Renaming index column to be compatible with the GBLUP CV function
-# and running the CV
-Idx4tPLS <- Idx4tPLS |> rename(BLUE = index)
-IdxGBLUP4tPLS <- cv2stage(Idx4tPLS, G, k = 5)
-
-# Joining GBLUP dataset to field emergence BLUEs
-IS_Idx4tPLS <- merge(IdxGBLUP4tPLS |> select(genotype, GEBV), 
-                  adjFieldEmerg |> select(genotype, BLUE), 
-                  by = "genotype")
-
-# Calculating accuracy for the new, broader, index
-accIS_Idx4tPLS <- cor(IS_Idx4tPLS$GEBV, IS_Idx4tPLS$BLUE)/
-  sqrt(h2CullisEmerField)
-
-accs_List[["accIdx4tPLS"]] <- accIS_Idx4tPLS
-
-# The accuracy was really close to the index combination between
-# only mesocotyl and coleoptile, the best among the IS scenarios
-# so far 
-# I wonder if somehow putting the weights into the model would
-# improve it...
-# Weighting actually caused a decrease in accuracy, so it won't be
-# implemented
-
-# ---------------- Ridge Regression Approach -----------------#
-
-# The variables perceived as less relevant to the response will
-# have their coefficients shrunk to near 0 
-# We will figure out how to deal with weights later...
-
-# Dataset with all four traits' BLUEs and weights, and the same
-# for field emergence
-RidgeDF <- merge(expandPreIdx |>
-                  select(genotype, meso = RagMeso, wtMeso, 
-                         coleo = RagColeo, wtColeo,
-                         root = RagRoot, wtRoot,
-                         shoot = RagShoot, wtShoot), 
-                adjFieldEmerg |> 
-                  select(genotype, emerg = BLUE, emrWt = weight),
-                by = "genotype") |>
-  droplevels()
-
-# CV to find the best lambda value (the function natively performs
-# 10-fold CV):
-
-y <- RidgeDF$emerg
-x <- data.matrix(RidgeDF |> select(meso, coleo, root, shoot))
-
-cv_ridge <- cv.glmnet(x, y, alpha = 0)
-
-# Finding best lambda by minimizing the mean squared error
-# (MSE)
-(best_lambda <- cv_ridge$lambda.min)
-
-# To obtain the coefficients for the index, we will run a model
-# with the best lambda
-
-best_ridge <- glmnet(x, y, alpha = 0, lambda = best_lambda)
-coef(best_ridge)
-
-# Calculating the index 
-IdxRidge <- as.matrix(RidgeDF|> select(-c(genotype, wtMeso,
-                                          wtColeo, wtRoot,
-                                          wtShoot, emerg,
-                                          emrWt))) %*%
-  coef(best_ridge)[-1] |>
-  as.data.frame()
-
-# Appending genotype names to index variable vector
-IdxRidge <- cbind(RidgeDF$genotype, IdxRidge) |>
-  rename(genotype = `RidgeDF$genotype`, index = V1)
-
-# Renaming index column to be compatible with the GBLUP CV function
-# and running the CV
-IdxRidge <- IdxRidge |> rename(BLUE = index)
-IdxGBLUPRidge <- cv2stage(IdxRidge, G, k = 5)
-
-# Matching GEBVs and emergence BLUEs to the same genotypes
-IdxRidgeConsol <- merge(IdxGBLUPRidge |> select(genotype, GEBV),
-                        RidgeDF |> select(genotype, emerg),
-                        by = "genotype")
-
-# Calculating accuracy for the new index
-accIS_IdxRidge <- cor(IdxRidgeConsol$GEBV, IdxRidgeConsol$emerg)/
-  sqrt(h2CullisEmerField)
-
-accs_List[["accIS_IdxRidge"]] <- accIS_IdxRidge
-
+  
 ###############################################################
 ##                    Saving model accuracies                ##
 ###############################################################
 
-save(accs_List, file = here("output", "modelAccs.RData"))
+save(accs_List, file = here("output", "accs_List.RData"))
 
 # Plotting accuracies calculated so far
 accs <- data.frame(

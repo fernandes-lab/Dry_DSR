@@ -11,7 +11,7 @@
 # Auxiliary data frames to help organize the process of pivoting to long format
 # We will pivot each individually to long format, then merge them
 
-cv2stageMT <- function(dataset1, dataset2, tgtset, matG, k, nrep){
+cv2stageMT_IS <- function(dataset1, dataset2, tgtset, matG, k, nrep){
   
   # Dataset1 represents the first proxy trait (mesocotyl)
   # Dataset2 represents the second proxy trait (coleoptile)

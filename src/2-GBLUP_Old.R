@@ -24,52 +24,6 @@ lapply(list.files(path = here("output"),
                   pattern = "adj.*.RData", full.names = T), load, 
        .GlobalEnv)
 
-# Loading Cullis heritability for predictive ability assessment
-# Note: heritability related to field emergence only
-load(file = here("output", "cullisHeritField.RData"))
-h2CullisEmerField <- h2CullisField$emergence
-rm(h2CullisField)
-
-#--------- Index with equal weights for meso and coleo --------------#
-
-# Following the same pipeline used for the index construction before
-MT_IS <- merge(adjRagdollMeso |> select(genotype, RagMeso = BLUE, 
-                                        wtMeso = weight),
-               adjRagdollColeo |> select(genotype, RagColeo = BLUE,
-                                         wtColeo = weight), 
-               by = "genotype") |>
-  merge(adjFieldEmerg |> select(genotype, FieldEmer = BLUE,
-                                wtEmerg = weight), 
-        by = "genotype") |>
-  droplevels()
-
-preIdx <- MT_IS |>
-  select(-c(FieldEmer, wtEmerg))
-
-IdxVar <- 0.5 * preIdx$RagMeso + 0.5 * preIdx$RagColeo
-
-wtIdx <- 1/((0.5^2)/preIdx$wtMeso + (0.5^2)/preIdx$wtColeo)
-
-preIdx <- preIdx |>
-  mutate_at(c("RagMeso", "RagColeo"), function(x) scale(x))
-
-IdxDF <- data.frame(genotype = preIdx$genotype,
-                    BLUE = IdxVar,
-                    weight = wtIdx)
-
-IdxGBLUP <- cv2stage(IdxDF, G, k = 5)
-
-IS_Idx <- merge(IdxGBLUP |> select(genotype, GEBV), 
-                adjFieldEmerg |> select(genotype, BLUE), 
-                by = "genotype")
-
-# Accuracy is 0.62, smaller than the 0.6/0.4 split
-accIS_Idx <- cor(IS_Idx$GEBV, IS_Idx$BLUE)/
-  sqrt(h2CullisEmerField) 
-
-#----------------------------------------------------------------#
-
-
 ##################################################################
 ##                   Optimization for four traits               ##
 ##################################################################
@@ -97,15 +51,42 @@ blues4t <- merge(adjRagdollMeso |> select(genotype, RagMeso = BLUE,
         by = "genotype") |>
   droplevels()
 
-# Standardize the trait columns in blues_nt
+# Standardize the trait columns in blues_4t
 # So their combination does not unfairly favor the one
 # with larger variance solely due to scale
 blues4t <- blues4t |>
   mutate_at(c("RagMeso", "RagColeo", "RagRoot", "RagShoot"), 
             function(x) scale(x))
 
-# For the objective function, the code used for the meso + coleo index
-# will be partially reused
+blues4t <- blues4t |>
+  select(-c(FieldEmer, wtEmerg))
+
+# Refer to original code on GitHub to redo this
+
+# Four lab proxy traits
+proxyTraits <- blues4t |> select(RagMeso, RagColeo, RagRoot, RagShoot)
+
+Idx <- as.matrix(proxyTraits) %*% coefs
+
+# Proxy traits' corresponding BLUE weights (inverse of pred error)
+proxyWeights <- blues4t |> select(wtMeso, wtColeo, wtRoot, wtShoot)
+
+# Weight vector for the new index variable
+wt <- 1/((1/as.matrix(proxyWeights)) %*% (coefs^2))
+
+IdxDF <- data.frame(genotype = blues4t$genotype,
+                    BLUE = Idx,
+                    weight = wt)
+
+rm(Idx, wt)
+
+# Performing GBLUP with the index variable as response
+IdxGBLUP <- cv2stageST_IS(IdxDF, adjFieldEmerg, G, k = 5, nrep = 10)
+
+
+
+
+
 
 objAcc <- function(coefs, blues, GM){
  
@@ -165,3 +146,9 @@ load(file = here("output", "modelAccs.RData"))
 
 # Adding the newly calculated accuracy to the list
 accs_List[["accIdx4tSLSQP"]] <- (-coefOptim$value)/h2CullisEmerField 
+
+
+
+
+
+

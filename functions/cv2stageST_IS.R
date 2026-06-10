@@ -2,7 +2,7 @@
 # created to accommodate an external dataset corresponding to the 
 # target trait
 
-cv2stageIS <- function(dataset, tgtset, matG, k, nrep){
+cv2stageST_IS <- function(dataset, tgtset, matG, k, nrep){
   
   # Filter dataset for only genotypes present in the G matrix
   dataset <- dataset[dataset$genotype %in% rownames(matG), ]
