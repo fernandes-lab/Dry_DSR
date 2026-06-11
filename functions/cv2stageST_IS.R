@@ -89,10 +89,5 @@ cv2stageST_IS <- function(dataset, tgtset, matG, k, nrep){
     accs[j] <- cor(gpDF$GEBV, gpDF$BLUE)
   }
   
-  # Let's build a small interval for the CV accuracies
-  # Assuming normality of the accuracies and a 95% interval
-  Z <- qnorm(0.025, lower.tail = F)
-  IC <- mean(accs) + c(-1, 1) * sd(accs)/sqrt(nrep)
-  
-  return(IC)
+  return(accs)
 }

@@ -1,5 +1,8 @@
 # Function to be optimized to obtain best weights/coefficients
 # for the index linear combination
+
+# I think using CV on it would be ideal...
+# And maximizing the mean...
 IdxCalc <- function(coefs, prxy, target, matG, train_ind){
   
   traits <- prxy$traits
@@ -32,7 +35,7 @@ IdxCalc <- function(coefs, prxy, target, matG, train_ind){
   predVals <- predict(GBLUP, classify = "genotype")$pvals
   
   # Filtering the predicted values for only those present in the
-  # (current) validation fold
+  # testing set
   predVals <- predVals[-train_ind, ]
   
   # Merge the predicted (GEBV) values to the original 

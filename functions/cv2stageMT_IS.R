@@ -164,9 +164,6 @@ cv2stageMT_IS <- function(dataset1, dataset2, tgtset, matG, k, nrep){
   
   accs[j] <- cor(gpDF$GEBV_Meso, gpDF$FieldEmer)
   }
-  # Return the "genomic prediction" data frame with GEBVs and BLUEs
-  Z <- qnorm(0.025, lower.tail = F)
-  IC <- mean(accs) + c(-1, 1) * sd(accs)/sqrt(nrep)
   
-  return(IC)
+  return(accs)
 }

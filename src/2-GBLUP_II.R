@@ -4,11 +4,16 @@ library(dplyr)
 library(tidyr)
 library(nloptr)
 
+# Note: the code here was entirely relocated to "2-GBLUP.R", but I will
+# keep it around for a while
+
 # Setting a seed
 set.seed(199927)
 
 # Sourcing index selection custom function
+# and single-trait IS function
 source(file = here("functions", "IdxCalc.R"))
+source(file = here("functions", "cv2stageST_IS.R"))
 
 # G matrix:
 load(here("output", "G.RData"))
@@ -42,7 +47,7 @@ IS_DF <- merge(adjRagdollMeso |> select(genotype, RagMeso = BLUE,
 
 # Matching dataset to G matrix' genotypes
 IS_DF <- IS_DF[IS_DF$genotype %in% rownames(G), ]
-G <- G[as.character(IS_DF$genotype), as.character(IS_DF$genotype)]
+Gfilt <- G[as.character(IS_DF$genotype), as.character(IS_DF$genotype)]
 
 # Separate the target trait BLUE and weight column from the IS_DF dataset
 targetDF <- IS_DF |> select(genotype, BLUE = FieldEmer, 
@@ -81,10 +86,10 @@ starting_coefs <- c(0.5, 0.25, 0.125, 0.125)
 # SLSQP function from nloptr library
 coefOptim <- slsqp(
   x0 = starting_coefs, # starting at equal weights for each trait
-  fn = IdxCalc,
+  fn = IdxCalc, # sourced IdxCalc function
   prxy = proxy,
   target = targetDF,
-  matG = G, 
+  matG = Gfilt, 
   train_ind = trnInd,
   lower = rep(0, 4), # lower bound for the coefficients
   upper = rep(1, 4),
@@ -95,4 +100,25 @@ coefOptim <- slsqp(
 bestWt <- coefOptim$par
 accBestWt <- -coefOptim$value
 
+# We can now build a data frame with the index variable and properly
+# access the predictive ability of indirect selection (IS) using 
+# repeated k-fold cross-validation (CV)
+# The index can be treated as a single proxy variable and thus fed into
+# the cv2stageST_IS function
 
+# Vector where each element corresponds to the index for a genotype
+Idx <- as.matrix(proxyTraits) %*% bestWt
+
+# Weight vector for the new index variable
+wtIdx <- 1/((1/as.matrix(proxyWeights)) %*% (bestWt^2))
+
+# DF with the index values as "BLUEs", and the index weights as weights
+IdxDF <- data.frame(genotype = IS_DF$genotype,
+                    BLUE = Idx,
+                    weight = wtIdx)
+
+# Performing repeated 5-fold CV to assess the prediction accuracy
+# with the selected index
+accIdx <- cv2stageST_IS(IdxDF, adjFieldEmerg, G, k = 5, nrep = 10)
+
+accs_List[["accIdx"]] <- accIdx

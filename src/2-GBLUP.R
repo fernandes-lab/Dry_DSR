@@ -2,9 +2,9 @@ library(here)
 library(asreml)
 library(dplyr)
 library(tidyr)
-library(pls)
+library(nloptr)
 library(ggplot2)
-library(glmnet)
+
 
 # Loading functions from the functions folder
 sapply(list.files(path = here("functions"), 
@@ -87,9 +87,19 @@ adjRagdollShoot <- adjMeans(expRagdoll, "shootlength")
 # especially when conducting GWAS
 
 # List to store prediction accuracies for each modeling approach
+# Each element of the list is itself a list of accuracies,
+# one for each repetition of k-fold CV
 accs_List <- vector(mode = "list")
 
-######################### Single-trait GP #####################
+# Experimental data (BLUEs)
+# Loads lab proxy traits and field emergence
+# Note: in case the above parts of the code were run in a different
+# Instance
+lapply(list.files(path = here("output"), 
+                  pattern = "adj.*.RData", full.names = T), 
+       load, .GlobalEnv)
+
+######################### Single-trait GP ##########################
 
 #------------ Field emergence (standard selection) ----------#
 
@@ -103,8 +113,6 @@ accEmerField <- cv2stageST(adjFieldEmerg, G, k = 5, nrep = 10)
 accs_List[["accField"]] <- accEmerField
 
 #------------ Ragdoll mesocotyl (indirect selection - IS) -----#
-
-# Coleoptile will be used for two-trait GP later
 
 # We will also have to eventually assess (for indirect selection)
 # how the GEBVs in the ragdoll experiment correlate with the BLUEs for
@@ -122,7 +130,14 @@ accMesoIS <- cv2stageST_IS(adjRagdollMeso, adjFieldEmerg, G, k = 5,
 
 accs_List[["accMesoIS"]] <- accMesoIS
 
-######################### Multi-trait GP ########################
+#------------ Ragdoll coleoptile (indirect selection - IS) -----#
+
+accColeoIS <- cv2stageST_IS(adjRagdollColeo, adjFieldEmerg, G, k = 5,
+                           nrep = 10)
+
+accs_List[["accColeoIS"]] <- accColeoIS
+
+######################### Multi-trait GP ############################
 
 ## Basically a multi-trait indirect selection
 
@@ -138,131 +153,109 @@ accIS_ML_CL <- cv2stageMT_IS(adjRagdollMeso, adjRagdollColeo,
 
 accs_List[["accMT_IS"]] <- accIS_ML_CL
 
+######################### Index GP ##############################
 
+# Single dataset with all four ragdoll experiment proxy traits
+# and the target field emergence trait. The merging is basically
+# to make sure the genotypes conform throughout all datasets
+# Note: IS stands for indirect selection
 
-
-
-
-
-
-#----------------------------------------------------------------
-# SECTION SUBJECT TO BIG CHANGES
-
-###################### Index variable GP ########################
-
-# The criteria for choosing the best linear combination will be the
-# correlation between the GEBVs of the trait and field emergence
-
-# Returns the weight of mesocotyl in the index linear combination
-# as well as the accuracy calculated via simple CV
-Idx2t <- IdxSel2t(adjRagdollMeso, adjRagdollColeo,
-                  adjFieldEmerg, G, k = 5)
-
-# Now, with the weights, we can use single-trait GBLUP for indirect
-# selection with the index variable
-
-# Building data frame to be fed to single-trait indirect selection
-# function
-preIdx <- merge(adjRagdollMeso |> select(genotype, RagMeso = BLUE, 
-                                     wtMeso = weight),
-                  adjRagdollColeo |> select(genotype, RagColeo = BLUE,
-                                     wtColeo = weight), 
-                  by = "genotype") |>
+IS_DF <- merge(adjRagdollMeso |> select(genotype, RagMeso = BLUE, 
+                                        wtMeso = weight),
+               adjRagdollColeo |> select(genotype, RagColeo = BLUE,
+                                         wtColeo = weight), 
+               by = "genotype") |> 
+  merge(adjRagdollRoot |> select(genotype, RagRoot = BLUE, 
+                                 wtRoot = weight),
+        by = "genotype") |>
+  merge(adjRagdollShoot |> select(genotype, RagShoot = BLUE, 
+                                  wtShoot = weight),
+        by = "genotype") |>
   merge(adjFieldEmerg |> select(genotype, FieldEmer = BLUE,
-                         wtEmerg = weight), 
+                                wtEmerg = weight), 
         by = "genotype") |>
   droplevels()
 
-# Remove columns related to the field experiment
-# and build a dataset to be fed into the index building
-# algorithm
-preIdx <- preIdx |>
-  select(-c(FieldEmer, wtEmerg))
+# Matching dataset to G matrix' genotypes
+IS_DF <- IS_DF[IS_DF$genotype %in% rownames(G), ]
+Gfilt <- G[as.character(IS_DF$genotype), as.character(IS_DF$genotype)]
 
-# Standardize the trait columns in preIdx
-# So their combination does not unfairly favor the one
-# with larger variance solely due to scale
-preIdx <- preIdx |>
-  mutate_at(c("RagMeso", "RagColeo"), function(x) scale(x))
+# Separate the target trait BLUE and weight column from the IS_DF dataset
+targetDF <- IS_DF |> select(genotype, BLUE = FieldEmer, 
+                            weight = wtEmerg)
+IS_DF <- IS_DF |> select(-c(FieldEmer, wtEmerg))
 
-#-------------------------------------------------------------
+# Note: merging into the unified dataset was done merely to ensure
+# consistency across the different data sources
 
-w <- Idx2t$bestWt
+# Four lab proxy traits
+proxyTraits <- IS_DF |> select(RagMeso, RagColeo, RagRoot, RagShoot)
 
-# Index variable
-IdxVar <- w * preIdx$RagMeso + (1 - w) * preIdx$RagColeo
+# Proxy traits' corresponding BLUE weights (inverse of pred error)
+proxyWeights <- IS_DF |> select(wtMeso, wtColeo, wtRoot, wtShoot)
 
-# Index variable weight for GBLUP
-wtIdx <- 1/((w^2)/preIdx$wtMeso + ((1 - w)^2)/preIdx$wtColeo)
+proxy <- list(genotypes = IS_DF$genotype,
+              traits = proxyTraits, 
+              weights = proxyWeights)
 
-# Generating data frame to be fed to cv2stage function:
-# The data frame must be in genotype-BLUE-weight format
-IdxDF <- data.frame(genotype = preIdx$genotype,
-                    BLUE = IdxVar,
+# Splitting the dataset into training/test sets
+# The accuracy will be measured on the test set
+# The test set will remain the same throughout the coefs optimization
+# To ensure it's a consistent "hold-out"
+# I will do a 70/30 split
+# Sampling row indices:
+n <- nrow(IS_DF)
+trnInd <- sample(1:n, floor(0.70*n))
+# Note: the above is done outside the function because the split is
+# only done once
+
+# Based on previous runs
+# The coefficients/weights represent the relative contribution
+# of each proxy trait to the index
+starting_coefs <- c(0.5, 0.25, 0.125, 0.125)
+
+# SLSQP function from nloptr library
+coefOptim <- slsqp(
+  x0 = starting_coefs, # starting at equal weights for each trait
+  fn = IdxCalc, # sourced IdxCalc function
+  prxy = proxy,
+  target = targetDF,
+  matG = Gfilt, 
+  train_ind = trnInd,
+  lower = rep(0, 4), # lower bound for the coefficients
+  upper = rep(1, 4),
+  heq = function(w){sum(w)-1} # coefficients should add up to 1
+)
+
+# Obtaining the best weights and their corresponding accuracy
+bestWt <- coefOptim$par
+accBestWt <- -coefOptim$value
+
+# We can now build a data frame with the index variable and properly
+# access the predictive ability of indirect selection (IS) using 
+# repeated k-fold cross-validation (CV)
+# The index can be treated as a single proxy variable and thus fed into
+# the cv2stageST_IS function
+
+# Vector where each element corresponds to the index for a genotype
+Idx <- as.matrix(proxyTraits) %*% bestWt
+
+# Weight vector for the new index variable
+wtIdx <- 1/((1/as.matrix(proxyWeights)) %*% (bestWt^2))
+
+# DF with the index values as "BLUEs", and the index weights as weights
+IdxDF <- data.frame(genotype = IS_DF$genotype,
+                    BLUE = Idx,
                     weight = wtIdx)
-rm(IdxVar, wtIdx)
 
+# Performing repeated 5-fold CV to assess the prediction accuracy
+# with the selected index
 accIdx <- cv2stageST_IS(IdxDF, adjFieldEmerg, G, k = 5, nrep = 10)
 
 accs_List[["accIdx"]] <- accIdx
 
-#------------------ Major QTL as fixed effect -------------------#
-
-# Note: this section makes use of the index variable built/selected
-# previously
-
-# The following code relies on the "3-GWAS.R" script
-# "mlid0051837994" was identified as a SNP with roughly
-# 10% as the percentage of variance explained (PVE)
-# Rex Bernardo's paper points out that QTLs with >=
-# 10% PVE and traits with around 80% heritability
-# provide minor improvements to the model
-
-
-# The construction of the new G matrix without the 
-# fixed effect SNP is performed in the "1-GenoAnalysis.R"
-# script
-
-# Index selection will be performed again because the best index
-# without the major QTL as a fixed effectmight be different from 
-# the one with it
-
-# Loading the new G matrix
-load(file = here("output", "G_NoMajor.RData"))
-
-# Now we must add the column with the major SNP dosages across
-# the genotypes
-
-# Loading SNP dosage per genotype after pruning
-load(file = here("output", "snpPruned.RData"))
-
-Idx2tFixed <- IdxSel2tFixed(adjRagdollMeso, adjRagdollColeo,
-                  adjFieldEmerg, snpPruned, G_NoMajor, k = 5)
-
-wF <- Idx2tFixed$bestWt # Kinda funky, need to double-check
-
-# Using the same preIdx dataset from before:
-
-# Index variable
-IdxVar <- wF * preIdx$RagMeso + (1 - wF) * preIdx$RagColeo
-
-# Index variable weight for GBLUP
-wtIdx <- 1/((wF^2)/preIdx$wtMeso + ((1 - wF)^2)/preIdx$wtColeo)
-
-# Generating data frame to be fed to cv2stage function:
-# The data frame must be in genotype-BLUE-weight format
-IdxDF <- data.frame(genotype = preIdx$genotype,
-                    BLUE = IdxVar,
-                    weight = wtIdx)
-rm(IdxVar, wtIdx)
-
-accIdxMajor <- cv2stageST_IS_Fixed(IdxDF, adjFieldEmerg, snpPruned, 
-                              G_NoMajor, k = 5, nrep = 10)
-
-accs_List[["accIdxMajor"]] <- accIdxMajor
-  
 ###############################################################
-##                    Saving model accuracies                ##
+##                Assessing model accuracies                 ##
 ###############################################################
 
 save(accs_List, file = here("output", "accs_List.RData"))
@@ -270,7 +263,7 @@ save(accs_List, file = here("output", "accs_List.RData"))
 # Plotting accuracies calculated so far
 accs <- data.frame(
   Model = names(accs_List),
-  Accuracy = unlist(accs_List)
+  Accuracy = unlist(lapply(accs_List, mean))
 )
 
 # Bar chart
@@ -281,7 +274,11 @@ ggplot(accs, aes(x = Model, y = Accuracy, fill = Model)) +
   theme(axis.text.x = element_blank()) +
   geom_text(aes(label = round(Accuracy, 2), vjust = -0.08))
 
-# Clean plot later
-# The best index so far was optimized in a grid search, not through
-# a model...
+# Wilcox test to compare vectors of accuracies (alternative hypothesis:
+# first vector is <greater or less> than second vector):
+
+# Comparing non-index approaches to index approach
+with(accs_List, wilcox.test(accMesoIS, accIdx, alternative = "less"))
+with(accs_List, wilcox.test(accColeoIS, accIdx, alternative = "less"))
+with(accs_List, wilcox.test(accMT_IS, accIdx, alternative = "less"))
 
