@@ -153,112 +153,14 @@ accIS_ML_CL <- cv2stageMT_IS(adjRagdollMeso, adjRagdollColeo,
 
 accs_List[["accMT_IS"]] <- accIS_ML_CL
 
-######################### Index GP ##############################
-
-# Single dataset with all four ragdoll experiment proxy traits
-# and the target field emergence trait. The merging is basically
-# to make sure the genotypes conform throughout all datasets
-# Note: IS stands for indirect selection
-
-IS_DF <- merge(adjRagdollMeso |> select(genotype, RagMeso = BLUE, 
-                                        wtMeso = weight),
-               adjRagdollColeo |> select(genotype, RagColeo = BLUE,
-                                         wtColeo = weight), 
-               by = "genotype") |> 
-  merge(adjRagdollRoot |> select(genotype, RagRoot = BLUE, 
-                                 wtRoot = weight),
-        by = "genotype") |>
-  merge(adjRagdollShoot |> select(genotype, RagShoot = BLUE, 
-                                  wtShoot = weight),
-        by = "genotype") |>
-  merge(adjFieldEmerg |> select(genotype, FieldEmer = BLUE,
-                                wtEmerg = weight), 
-        by = "genotype") |>
-  droplevels()
-
-# Matching dataset to G matrix' genotypes
-IS_DF <- IS_DF[IS_DF$genotype %in% rownames(G), ]
-Gfilt <- G[as.character(IS_DF$genotype), as.character(IS_DF$genotype)]
-
-# Separate the target trait BLUE and weight column from the IS_DF dataset
-targetDF <- IS_DF |> select(genotype, BLUE = FieldEmer, 
-                            weight = wtEmerg)
-IS_DF <- IS_DF |> select(-c(FieldEmer, wtEmerg))
-
-# Note: merging into the unified dataset was done merely to ensure
-# consistency across the different data sources
-
-# Four lab proxy traits
-proxyTraits <- IS_DF |> select(RagMeso, RagColeo, RagRoot, RagShoot)
-
-# Proxy traits' corresponding BLUE weights (inverse of pred error)
-proxyWeights <- IS_DF |> select(wtMeso, wtColeo, wtRoot, wtShoot)
-
-proxy <- list(genotypes = IS_DF$genotype,
-              traits = proxyTraits, 
-              weights = proxyWeights)
-
-# Splitting the dataset into training/test sets
-# The accuracy will be measured on the test set
-# The test set will remain the same throughout the coefs optimization
-# To ensure it's a consistent "hold-out"
-# I will do a 70/30 split
-# Sampling row indices:
-n <- nrow(IS_DF)
-trnInd <- sample(1:n, floor(0.70*n))
-# Note: the above is done outside the function because the split is
-# only done once
-
-# Based on previous runs
-# The coefficients/weights represent the relative contribution
-# of each proxy trait to the index
-starting_coefs <- c(0.5, 0.25, 0.125, 0.125)
-
-# SLSQP function from nloptr library
-coefOptim <- slsqp(
-  x0 = starting_coefs, # starting at equal weights for each trait
-  fn = IdxCalc, # sourced IdxCalc function
-  prxy = proxy,
-  target = targetDF,
-  matG = Gfilt, 
-  train_ind = trnInd,
-  lower = rep(0, 4), # lower bound for the coefficients
-  upper = rep(1, 4),
-  heq = function(w){sum(w)-1} # coefficients should add up to 1
-)
-
-# Obtaining the best weights and their corresponding accuracy
-bestWt <- coefOptim$par
-accBestWt <- -coefOptim$value
-
-# We can now build a data frame with the index variable and properly
-# access the predictive ability of indirect selection (IS) using 
-# repeated k-fold cross-validation (CV)
-# The index can be treated as a single proxy variable and thus fed into
-# the cv2stageST_IS function
-
-# Vector where each element corresponds to the index for a genotype
-Idx <- as.matrix(proxyTraits) %*% bestWt
-
-# Weight vector for the new index variable
-wtIdx <- 1/((1/as.matrix(proxyWeights)) %*% (bestWt^2))
-
-# DF with the index values as "BLUEs", and the index weights as weights
-IdxDF <- data.frame(genotype = IS_DF$genotype,
-                    BLUE = Idx,
-                    weight = wtIdx)
-
-# Performing repeated 5-fold CV to assess the prediction accuracy
-# with the selected index
-accIdx <- cv2stageST_IS(IdxDF, adjFieldEmerg, G, k = 5, nrep = 10)
-
-accs_List[["accIdx"]] <- accIdx
-
 ###############################################################
 ##                Assessing model accuracies                 ##
 ###############################################################
 
 save(accs_List, file = here("output", "accs_List.RData"))
+
+# The assessment uses output from this source file, from 2-GBLUP_Idx,
+# and from 2-RKHS.R
 
 # Plotting accuracies calculated so far
 accs <- data.frame(

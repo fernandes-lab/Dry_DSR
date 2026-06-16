@@ -4,9 +4,6 @@ library(dplyr)
 library(tidyr)
 library(nloptr)
 
-# Note: the code here was entirely relocated to "2-GBLUP.R", but I will
-# keep it around for a while
-
 # Setting a seed
 set.seed(199927)
 
@@ -120,5 +117,7 @@ IdxDF <- data.frame(genotype = IS_DF$genotype,
 # Performing repeated 5-fold CV to assess the prediction accuracy
 # with the selected index
 accIdx <- cv2stageST_IS(IdxDF, adjFieldEmerg, G, k = 5, nrep = 10)
+
+load(file = here("output", "accs_List.RData"))
 
 accs_List[["accIdx"]] <- accIdx
