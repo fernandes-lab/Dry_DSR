@@ -2,7 +2,6 @@ library(here)
 library(asreml)
 library(dplyr)
 library(tidyr)
-library(nloptr)
 library(ggplot2)
 
 
