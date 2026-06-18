@@ -19,7 +19,7 @@ load(here("output", "G.RData"))
 # Loads lab proxy traits and field emergence
 lapply(list.files(path = here("output"), 
                   pattern = "adj.*.RData", full.names = T), 
-                  load, .GlobalEnv)
+       load, .GlobalEnv)
 
 # Single dataset with all four ragdoll experiment proxy traits
 # and the target field emergence trait. The merging is basically
@@ -27,20 +27,20 @@ lapply(list.files(path = here("output"),
 # Note: IS stands for indirect selection
 
 IS_DF <- merge(adjRagdollMeso |> select(genotype, RagMeso = BLUE, 
-                                          wtMeso = weight),
-                 adjRagdollColeo |> select(genotype, RagColeo = BLUE,
-                                           wtColeo = weight), 
-                 by = "genotype") |> 
-           merge(adjRagdollRoot |> select(genotype, RagRoot = BLUE, 
+                                        wtMeso = weight),
+               adjRagdollColeo |> select(genotype, RagColeo = BLUE,
+                                         wtColeo = weight), 
+               by = "genotype") |> 
+  merge(adjRagdollRoot |> select(genotype, RagRoot = BLUE, 
                                  wtRoot = weight),
-                 by = "genotype") |>
-           merge(adjRagdollShoot |> select(genotype, RagShoot = BLUE, 
+        by = "genotype") |>
+  merge(adjRagdollShoot |> select(genotype, RagShoot = BLUE, 
                                   wtShoot = weight),
-                 by = "genotype") |>
-           merge(adjFieldEmerg |> select(genotype, FieldEmer = BLUE,
+        by = "genotype") |>
+  merge(adjFieldEmerg |> select(genotype, FieldEmer = BLUE,
                                 wtEmerg = weight), 
-                 by = "genotype") |>
-           droplevels()
+        by = "genotype") |>
+  droplevels()
 
 # Matching dataset to G matrix' genotypes
 IS_DF <- IS_DF[IS_DF$genotype %in% rownames(G), ]
@@ -64,16 +64,27 @@ proxy <- list(genotypes = IS_DF$genotype,
               traits = proxyTraits, 
               weights = proxyWeights)
 
-# Splitting the dataset into training/test sets
-# The accuracy will be measured on the test set
-# The test set will remain the same throughout the coefs optimization
-# To ensure it's a consistent "hold-out"
-# I will do a 70/30 split
-# Sampling row indices:
+# Splitting the dataset into validation sets for 5-fold CV
+k <- 5 # number of folds
+nrep <- 5 # 5-fold CV reps
 n <- nrow(IS_DF)
-trnInd <- sample(1:n, floor(0.70*n))
-# Note: the above is done outside the function because the split is
-# only done once
+
+# Each element is assigned a number between 1 and k
+folds <- cut(seq(1, n), breaks = k, labels = FALSE)
+
+# List of folds for each repetition
+# Each element of the list represents a single repetition
+# of k-fold CV, and each element is itself a list of folds
+valFolds <- vector(mode = "list")
+
+genotypes <- IS_DF$genotype
+
+for(r in 1:nrep){
+  aux <- sample(folds) # different sample each time
+  
+  # Validation groups (each element in the list is a 5-fold split)
+  valFolds[[r]] <- lapply(1:k, function(i) genotypes[aux == i])
+}
 
 # Based on previous runs
 # The coefficients/weights represent the relative contribution
@@ -87,7 +98,7 @@ coefOptim <- slsqp(
   prxy = proxy,
   target = targetDF,
   matG = Gfilt, 
-  train_ind = trnInd,
+  vFolds = valFolds,
   lower = rep(0, 4), # lower bound for the coefficients
   upper = rep(1, 4),
   heq = function(w){sum(w)-1} # coefficients should add up to 1
@@ -121,3 +132,5 @@ accIdx <- cv2stageST_IS(IdxDF, adjFieldEmerg, G, k = 5, nrep = 10)
 load(file = here("output", "accs_List.RData"))
 
 accs_List[["accIdx"]] <- accIdx
+
+save(accs_List, file = here("output", "accs_List.RData"))

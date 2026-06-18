@@ -111,9 +111,14 @@ for (i in 1:10){
   accs[i] <- cor(results$pred, results$FieldEmer)
 }
 
-load(file = here("output", "accs_List.RData"))
-accs_List[["accsRKHS"]] <- accs
-save(accs_List, file = here("output", "accs_List.RData"))
+
+# With the proxy traits only, this approach performed similarly to
+# the index GBLUP approach, whereas with the Gaussian G kernel alone it
+# performed almost as well as with both
+
+#load(file = here("output", "accs_List.RData"))
+#accs_List[["accRKHS"]] <- accs
+#save(accs_List, file = here("output", "accs_List.RData"))
 
 
 

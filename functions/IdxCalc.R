@@ -3,7 +3,7 @@
 
 # I think using CV on it would be ideal...
 # And maximizing the mean...
-IdxCalc <- function(coefs, prxy, target, matG, train_ind){
+IdxCalc <- function(coefs, prxy, target, matG, vFolds){
   
   traits <- prxy$traits
   weights <- prxy$weights # BLUE calculation weights, not
@@ -20,39 +20,61 @@ IdxCalc <- function(coefs, prxy, target, matG, train_ind){
                       BLUE = Idx,
                       weight = wtIdx)
   
-  # I want to "mask" all the BLUEs in the testing rows
-  Idx_test <- IdxDF
-  Idx_test[-train_ind, "BLUE"] <- NA
+  # CV parameters
+  nrep <- length(vFolds)
+  k <- length(vFolds[[1]]) # all equal length
   
-  GBLUP <- asreml(fixed = BLUE ~ 1,
-                  # Variance structure of the genotypes
-                  random = ~ vm(genotype, matG),
-                  weights = weight,
-                  residual = ~ idv(units),
-                  data = Idx_test)
+  # Vector of correlations (one for each repetition of k-fold CV)
+  cors <- numeric(nrep)
+  for(r in 1:nrep){
+    # Data frame to save results of each repetition
+    gpDF <- data.frame()
+    for(f in 1:k){
+      # I want to "mask" all the BLUEs in the testing rows
+      Idx_test <- IdxDF
+      Idx_test[Idx_test$genotype %in% vFolds[[r]][[f]], "BLUE"] <- NA
+      
+      Idx_test <- Idx_test[Idx_test$genotype %in% rownames(matG), ]
+      matG <- matG[as.character(Idx_test$genotype), 
+                   as.character(Idx_test$genotype)]
+      
+      GBLUP <- asreml(fixed = BLUE ~ 1,
+                      # Variance structure of the genotypes
+                      random = ~ vm(genotype, matG),
+                      weights = weight,
+                      residual = ~ idv(units),
+                      data = Idx_test)
   
-  # Predicted values
-  predVals <- predict(GBLUP, classify = "genotype")$pvals
+      # Predicted values
+      predVals <- predict(GBLUP, classify = "genotype")$pvals
   
-  # Filtering the predicted values for only those present in the
-  # testing set
-  predVals <- predVals[-train_ind, ]
+      # Filtering the predicted values for only those present in the
+      # current fold
+      predVals <- predVals[predVals$genotype %in% vFolds[[r]][[f]],]
   
-  # Merge the predicted (GEBV) values to the original 
-  # training dataset keeping only the rows relevant 
-  # to the current fold
-  predMerged <- merge(predVals, IdxDF[, c("genotype", "BLUE")], 
-                      by = "genotype")
+      # Merge the predicted (GEBV) values to the original 
+      # training dataset keeping only the rows relevant 
+      # to the current fold
+      predMerged <- merge(predVals, IdxDF[, c("genotype", "BLUE")], 
+                          by = "genotype")
   
-  # Naming the GEBV column accordingly
-  colnames(predMerged)[2] <- "GEBV"
+      # Naming the GEBV column accordingly
+      colnames(predMerged)[2] <- "GEBV"
   
-  # Data frame merging the proxy trait with the target trait
-  # via the common genotypes, plus the relevant GEBVs and BLUEs
-  gpDF <- merge(predMerged |> select(genotype, GEBV), 
-                target |> select(genotype, BLUE), 
-                by = "genotype")
+      # Data frame merging the proxy trait with the target trait
+      # via the common genotypes, plus the relevant GEBVs and BLUEs
+      predMerged <- merge(predMerged |> select(genotype, GEBV), 
+                    target |> select(genotype, BLUE), 
+                    by = "genotype")
+      
+      # Data frame with BLUEs and GEBVs for the current repetition
+      gpDF <- rbind(gpDF, predMerged)
+    }
+    cors[r] <- cor(gpDF$GEBV, gpDF$BLUE)
+  }
   
-  return(-cor(gpDF$GEBV, gpDF$BLUE))
+  # Returns the negative mean correlation (across all repetitions)
+  # Negative because the optimization function minimizes the target
+  return(-mean(cors))
 }
 
