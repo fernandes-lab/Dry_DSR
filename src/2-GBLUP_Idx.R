@@ -42,7 +42,7 @@ IS_DF <- merge(adjRagdollMeso |> select(genotype, RagMeso = BLUE,
         by = "genotype") |>
   droplevels()
 
-# Matching dataset to G matrix' genotypes
+# Matching dataset to G matrix's genotypes
 IS_DF <- IS_DF[IS_DF$genotype %in% rownames(G), ]
 Gfilt <- G[as.character(IS_DF$genotype), as.character(IS_DF$genotype)]
 
@@ -65,6 +65,9 @@ proxy <- list(genotypes = IS_DF$genotype,
               weights = proxyWeights)
 
 # Splitting the dataset into validation sets for 5-fold CV
+# This CV scheme is purely to obtain the index, which is why
+# it's separate from the general CV scheme used to compare the
+# different models
 k <- 5 # number of folds
 nrep <- 5 # 5-fold CV reps
 n <- nrow(IS_DF)
@@ -75,15 +78,16 @@ folds <- cut(seq(1, n), breaks = k, labels = FALSE)
 # List of folds for each repetition
 # Each element of the list represents a single repetition
 # of k-fold CV, and each element is itself a list of folds
-valFolds <- vector(mode = "list")
+valFoldsIdx <- vector(mode = "list")
 
 genotypes <- IS_DF$genotype
 
+# Each rep is a different k-fold CV split
 for(r in 1:nrep){
   aux <- sample(folds) # different sample each time
   
   # Validation groups (each element in the list is a 5-fold split)
-  valFolds[[r]] <- lapply(1:k, function(i) genotypes[aux == i])
+  valFoldsIdx[[r]] <- lapply(1:k, function(i) genotypes[aux == i])
 }
 
 # Based on previous runs
@@ -98,7 +102,7 @@ coefOptim <- slsqp(
   prxy = proxy,
   target = targetDF,
   matG = Gfilt, 
-  vFolds = valFolds,
+  vFolds = valFoldsIdx,
   lower = rep(0, 4), # lower bound for the coefficients
   upper = rep(1, 4),
   heq = function(w){sum(w)-1} # coefficients should add up to 1
@@ -107,6 +111,11 @@ coefOptim <- slsqp(
 # Obtaining the best weights and their corresponding accuracy
 bestWt <- coefOptim$par
 accBestWt <- -coefOptim$value
+
+# Saving best weight values
+# Note: rds objects must be assigned to a variable when loaded 
+# back
+save(bestWt, file = here("output", "bestWt_Idx.rds"))
 
 # We can now build a data frame with the index variable and properly
 # access the predictive ability of indirect selection (IS) using 
@@ -125,9 +134,14 @@ IdxDF <- data.frame(genotype = IS_DF$genotype,
                     BLUE = Idx,
                     weight = wtIdx)
 
+# Loading folds list for repeated (10 times) 5-fold CV
+# Note: this CV is to reliably obtain the accuracies for the 
+# index model, after the index has already been selected
+load(file = here("output", "valFolds.RData"))
+
 # Performing repeated 5-fold CV to assess the prediction accuracy
 # with the selected index
-accIdx <- cv2stageST_IS(IdxDF, adjFieldEmerg, G, k = 5, nrep = 10)
+accIdx <- cv2stageST_IS(IdxDF, adjFieldEmerg, G, valFolds)
 
 load(file = here("output", "accs_List.RData"))
 

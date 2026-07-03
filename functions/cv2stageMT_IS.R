@@ -11,7 +11,7 @@
 # Auxiliary data frames to help organize the process of pivoting to long format
 # We will pivot each individually to long format, then merge them
 
-cv2stageMT_IS <- function(dataset1, dataset2, tgtset, matG, k, nrep){
+cv2stageMT_IS <- function(dataset1, dataset2, tgtset, matG, vFolds){
   
   # Dataset1 represents the first proxy trait (mesocotyl)
   # Dataset2 represents the second proxy trait (coleoptile)
@@ -73,28 +73,14 @@ cv2stageMT_IS <- function(dataset1, dataset2, tgtset, matG, k, nrep){
   longData <- longData |>
     arrange(trait)
   
-  # Unique genotypes in the dataset
-  genotypes <- unique(longData$genotype)
-  
-  # Number of distinct genotypes in the dataset
-  n <- length(genotypes)
+  # CV parameters
+  nrep <- length(vFolds)
+  k <- length(vFolds[[1]]) # all equal length
   
   # Vector of accuracies for each repetition
   accs <- numeric()
   
   for (j in 1:nrep){
-  ## Create folds:
-  
-  # Fold assignment for each genotype
-  # Split the 1:n sequence into k folds and them randomly arranges them
-  # across the range of the dataset
-  folds <- sample(cut(1:n, breaks = k, labels = FALSE))
-  
-  # Genotype validation folds
-  # Each member of the list is a subset of the genotypes column
-  # pertaining to that specific fold assignment
-  valFolds <- lapply(1:k, function(i) genotypes[folds == i])
-  
   # Data frame to store the results
   gpDF <- data.frame()
   
@@ -106,7 +92,7 @@ cv2stageMT_IS <- function(dataset1, dataset2, tgtset, matG, k, nrep){
     # Masks the BLUEs for genotypes present in the f-th validation
     # fold, f = 1, 2, ..., k, so they are absent from training the model
     # This should mask the BLUEs for both traits
-    trainData[trainData$genotype %in% valFolds[[f]], "BLUE"] <- NA
+    trainData[trainData$genotype %in% vFolds[[j]][[f]], "BLUE"] <- NA
     
     # Filter trainData for only genotypes present in the G matrix
     trainData <- trainData[trainData$genotype %in% rownames(matG), ]
@@ -127,7 +113,7 @@ cv2stageMT_IS <- function(dataset1, dataset2, tgtset, matG, k, nrep){
     
     # Filtering the predicted values for only those present in the
     # (current) validation fold
-    predVals <- predVals[predVals$genotype %in% valFolds[[f]], ]
+    predVals <- predVals[predVals$genotype %in% vFolds[[j]][[f]], ]
     
     # Stack one trait on top of the other in the predVals dataframe
     predVals <- predVals |>

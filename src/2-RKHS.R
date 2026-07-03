@@ -7,6 +7,9 @@ library(BGLR)
 
 # I will use the BLUEs data as input, but this can be further discussed
 
+# Loading folds list for repeated (10 times) 5-fold CV
+load(file = here("output", "valFolds.RData"))
+
 # G matrix:
 load(here("output", "G.RData"))
 
@@ -53,24 +56,19 @@ rm(G)
 
 #----------------------------------------------------------------
 
-n <- nrow(all_DF)
-
 # Accuracy vector with the accuracies for each k-fold CV rep
 accs <- numeric()
 
-# Number of cross-validation folds
+# Number of CV repetitions
+nrep <- 10
+
+# Number of CV folds per repetition
 k <- 5
 
 # Storing genotype information for CV
 genotype <- all_DF$genotype
 
-for (i in 1:10){
-  # Mix and divide
-  folds <- cut(seq(1, n), breaks = k, labels = FALSE)
-  folds <- sample(folds)
-  
-  # Validation groups
-  valFolds <- lapply(1:k, function(l) genotype[folds == l])
+for (i in 1:nrep){
   
   # Data frame to save results of the CV for each rep
   results <- data.frame()
@@ -83,7 +81,7 @@ for (i in 1:10){
   # scenario
     
   trainData <- all_DF
-  trainData[trainData$genotype %in% valFolds[[f]], "FieldEmer"] <- NA
+  trainData[trainData$genotype %in% valFolds[[i]][[f]], "FieldEmer"] <- NA
   
   fit <- BGLR(
     y = trainData$FieldEmer,
@@ -99,7 +97,7 @@ for (i in 1:10){
   )
   
   predVals <- as.data.frame(cbind(as.data.frame(genotype), fit$yHat))
-  predVals <- predVals[predVals$genotype %in% valFolds[[f]], ]
+  predVals <- predVals[predVals$genotype %in% valFolds[[i]][[f]], ]
   
   predMerged <- merge(predVals |> select(genotype, pred = `fit$yHat`), 
                       all_DF |> select(genotype, FieldEmer),
@@ -114,11 +112,13 @@ for (i in 1:10){
 
 # With the proxy traits only, this approach performed similarly to
 # the index GBLUP approach, whereas with the Gaussian G kernel alone it
-# performed almost as well as with both
+# performed almost as well as with both the kernel and the proxies, notably
+# even better than the baseline model (should be further scrutinized...)
 
-#load(file = here("output", "accs_List.RData"))
-#accs_List[["accRKHS"]] <- accs
-#save(accs_List, file = here("output", "accs_List.RData"))
+
+load(file = here("output", "accs_List.RData"))
+accs_List[["accRKHS"]] <- accs
+save(accs_List, file = here("output", "accs_List.RData"))
 
 
 

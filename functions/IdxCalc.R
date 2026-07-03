@@ -25,6 +25,7 @@ IdxCalc <- function(coefs, prxy, target, matG, vFolds){
   k <- length(vFolds[[1]]) # all equal length
   
   # Vector of correlations (one for each repetition of k-fold CV)
+  # Correlation = accuracy in this context
   cors <- numeric(nrep)
   for(r in 1:nrep){
     # Data frame to save results of each repetition

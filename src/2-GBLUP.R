@@ -93,10 +93,13 @@ accs_List <- vector(mode = "list")
 # Experimental data (BLUEs)
 # Loads lab proxy traits and field emergence
 # Note: in case the above parts of the code were run in a different
-# Instance
+# instance
 lapply(list.files(path = here("output"), 
                   pattern = "adj.*.RData", full.names = T), 
        load, .GlobalEnv)
+
+# Loading folds list for repeated (10 times) 5-fold CV
+load(file = here("output", "valFolds.RData"))
 
 ######################### Single-trait GP ##########################
 
@@ -107,7 +110,7 @@ lapply(list.files(path = here("output"),
 # Calling function that performs CV and returns a data frame with the GEBVs
 # and BLUEs
 
-accEmerField <- cv2stageST(adjFieldEmerg, G, k = 5, nrep = 10)
+accEmerField <- cv2stageST(adjFieldEmerg, G, valFolds)
 
 accs_List[["accField"]] <- accEmerField
 
@@ -117,8 +120,8 @@ accs_List[["accField"]] <- accEmerField
 # how the GEBVs in the ragdoll experiment correlate with the BLUEs for
 # emergence in the field
 
-accMesoIS <- cv2stageST_IS(adjRagdollMeso, adjFieldEmerg, G, k = 5,
-                        nrep = 10)
+accMesoIS <- cv2stageST_IS(adjRagdollMeso, adjFieldEmerg, G, 
+                           valFolds)
 
 # To evaluate the prediction accuracy for the indirect selection approach,
 # we will assess the correlation between the lab mesocotyl GEBVs and the field 
@@ -131,8 +134,8 @@ accs_List[["accMesoIS"]] <- accMesoIS
 
 #------------ Ragdoll coleoptile (indirect selection - IS) -----#
 
-accColeoIS <- cv2stageST_IS(adjRagdollColeo, adjFieldEmerg, G, k = 5,
-                           nrep = 10)
+accColeoIS <- cv2stageST_IS(adjRagdollColeo, adjFieldEmerg, G, 
+                            valFolds)
 
 accs_List[["accColeoIS"]] <- accColeoIS
 
@@ -148,7 +151,7 @@ accs_List[["accColeoIS"]] <- accColeoIS
 # emergence is higher than the coleoptile's correlation with field emergence
 
 accIS_ML_CL <- cv2stageMT_IS(adjRagdollMeso, adjRagdollColeo,
-                          adjFieldEmerg, G, k = 5, nrep = 10)
+                          adjFieldEmerg, G, valFolds)
 
 accs_List[["accMT_IS"]] <- accIS_ML_CL
 
@@ -173,13 +176,15 @@ ggplot(accs, aes(x = Model, y = Accuracy, fill = Model)) +
   theme_minimal() +
   labs(title = "Prediction Accuracies (Baseline + IS)", y = "Accuracy") +
   theme(axis.text.x = element_blank()) +
-  geom_text(aes(label = round(Accuracy, 2), vjust = -0.08))
+  geom_text(aes(label = round(Accuracy, 2), vjust = 0.08))
 
 # Wilcox test to compare vectors of accuracies (alternative hypothesis:
 # first vector is <greater or less> than second vector):
 
 # Comparing non-index approaches to index approach
+# See 2-GBLUP_Idx.R for details on index modeling
 with(accs_List, wilcox.test(accMesoIS, accIdx, alternative = "less"))
 with(accs_List, wilcox.test(accColeoIS, accIdx, alternative = "less"))
 with(accs_List, wilcox.test(accMT_IS, accIdx, alternative = "less"))
+with(accs_List, wilcox.test(accMesoIS, accMT_IS, alternative = "less"))
 
