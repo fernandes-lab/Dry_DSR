@@ -144,11 +144,30 @@ cv2stageMT_IS <- function(dataset1, dataset2, tgtset, matG, vFolds){
   
   # Data frame merging the (main) proxy trait with the target trait
   # via the common genotypes, plus the relevant GEBVs and BLUEs
-  gpDF <- merge(gpDF |> select(genotype, GEBV_Meso), 
+  
+  # gpDF <- merge(gpDF |> select(genotype, GEBV_Meso), 
+  #               dataset0 |> select(genotype, FieldEmer), 
+  #               by = "genotype")
+  # 
+  # accs[j] <- cor(gpDF$GEBV_Meso, gpDF$FieldEmer)
+  
+  # Data frame merging both proxy traits with the target trait via the common
+  # genotypes
+  gpDF <- merge(gpDF |> select(genotype, GEBV_Meso, GEBV_Coleo), 
                 dataset0 |> select(genotype, FieldEmer), 
                 by = "genotype")
   
-  accs[j] <- cor(gpDF$GEBV_Meso, gpDF$FieldEmer)
+  # The aux variables are the individual correlations between the proxy
+  # traits's GEBVs and the target trait phenotypic values
+  aux1 <- cor(gpDF$GEBV_Meso, gpDF$FieldEmer)
+  aux2 <- cor(gpDF$GEBV_Coleo, gpDF$FieldEmer)
+  
+  # Accuracy is measured as the correlation between an "adhoc" index
+  # built from a weighted (by their individual correlations) sum of the GEBVs
+  # from each proxy trait and the target trait phenotypic values
+  # Based on: https://pubmed.ncbi.nlm.nih.gov/29218378/
+  accs[j] <- cor(aux1*scale(gpDF$GEBV_Meso) + aux2*scale(gpDF$GEBV_Coleo), 
+                 gpDF$FieldEmer)
   }
   
   return(accs)
