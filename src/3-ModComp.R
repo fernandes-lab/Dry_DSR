@@ -92,11 +92,11 @@ pred_obj <- predictPlus(
 pred_obj$differences    # LSD-based differences
 pred_obj$LSD            # LSD threshold
 
-# The assigned LSD is 0.006192499 (as seen in pred_obj$LSD), and all values
+# The assigned LSD is 0.005948599 (as seen in pred_obj$LSD), and all values
 # in pred_obj$differences are larger than this value (in module), hence
 # all the models differ significantly from each other
 
-sum(abs(pred_obj$differences) < 0.006192499)
+sum(abs(pred_obj$differences) < 0.005948599)
 # There are 6 differences below the threshold, but they correspond to
 # the models compared to themselves
 
