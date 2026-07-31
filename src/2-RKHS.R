@@ -91,8 +91,8 @@ for (i in 1:nrep){
                                          RagShoot), model = "BRR"),
       genomic = list(K = Gfilt, model = "RKHS")
     ),
-    nIter = 2000,
-    burnIn = 400,
+    nIter = 10000,
+    burnIn = 2000,
     saveAt = ""
   )
   
