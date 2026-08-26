@@ -1,10 +1,7 @@
 library(here)
-library(asreml)
-library(dplyr)
-library(tidyr)
-library(ggplot2)
-library(asremlPlus)
-
+library(tidyverse)
+library(ggpubr)
+library(multcompView)
 
 ###############################################################
 ##                Assessing model accuracies                 ##
@@ -21,87 +18,68 @@ load(file = here("output", "accs_List.RData"))
 # viable
 lapply(accs_List, shapiro.test)
 
+par(mfrow=c(2, 3))
 lapply(accs_List, function(a) {
   qqnorm(a)
   qqline(a)
 })
 # Normality seems like a reasonable assumption
 
+# Note: accuracy (predictive ability) in our context translates to
+# ability to rank genotypes
 
-# Model mean accuracies and standard deviations for these
-accs <- data.frame(
-  Model = names(accs_List),
-  Accuracy = unlist(lapply(accs_List, mean)),
-  StdDev = unlist(lapply(accs_List, sd))
+#  Data frame with the respective models, accuracies and CV repetitions
+acc_long <- data.frame(
+  model = as.factor(rep(str_remove(names(accs_List), "acc"), each = 10)),
+  accuracy = unlist(accs_List, use.names = FALSE),
+  CV_rep = as.factor(rep(1:10, length(accs_List)))
 )
 
-# Bar chart
-ggplot(accs, aes(x = Model, y = Accuracy, fill = Model)) +
-  geom_col() +
-  theme_minimal() +
-  labs(title = "Mean Accuracies", y = "Accuracy", x = "") +
-  geom_errorbar(aes(ymin = Accuracy - StdDev, ymax = Accuracy + StdDev)) +
-  theme(axis.text.x = element_blank()) +
-  geom_text(aes(label = round(Accuracy, 2), vjust = -0.7)) + 
-  scale_y_continuous(expand = expansion(mult = c(0, 0.1)))
+# In order to assess whether the models differ significantly from each other, 
+# we can employ an analysis of variance (ANOVA), using the CV repetition
+# as a grouping factor (specified as a stratum via the Error(.) term):
 
-# In order to compare the model accuracies, we will perform analysis of variance,
-# and Tukey HSD for pairwise differences
-
-accDF <- as.data.frame(accs_List)
-
-# Adding a column to represent the 5-fold CV repetition that groups 
-# the accuracy values across models
-accDF$repID <- row.names(accDF)
-
-# Converting data frame to long format to prepare for aov
-accDF <- accDF |>
-  pivot_longer(-repID, names_to = "model", values_to = "accuracy") |>
-  mutate(model = as.factor(model), repID = as.factor(repID))
-
-# Accuracy is modeled in terms of the model plus a fluctuation due to the
-# specific 5-fold CV repetition
-modAOV <- aov(accuracy ~ model + Error(repID), accDF)
+modAOV <- aov(accuracy ~ model + CV_rep, acc_long)
 summary(modAOV)
 
-# Since "model" has a significant effect, there is evidence that at least 
-# two models differ significantly
+# We can see that model is a significant term to the model, implying that
+# the models statistically differ from each other
 
-# Note: HSD corresponds to "honestly significant difference"
-# For TukeyHSD, we fit a mixed model to the accuracy ~ model relationship, so
-# repID can be treated as a random effect (the Error notation from aov has poor
-# compatibility with TukeyHSD)
+# In order to conduct pairwise comparisons, we can conduct the Tukey's HSD 
+# (Honestly Significant Difference):
+(tukeyMod <- TukeyHSD(modAOV, which = "model"))
 
+# Generate letter groupings for boxplot:
+tukey_pvals <- tukeyMod$model[, "p adj"]
+lettersComp <- multcompLetters(tukey_pvals)
 
-modLMM <- asreml(
-  fixed = accuracy ~ model,
-  random = ~ factor(repID), 
-  data = accDF
+# Data frame with letter positions:
+y_pos = tapply(acc_long$accuracy, acc_long$model, max) + 0.02
+letterDF <- data.frame(
+  # Letters placed right above the maximum value for each
+  # model 
+  # max accuracy value across each model
+  model = names(y_pos),
+  letter = lettersComp$Letters,
+  y.pos = y_pos
 )
+rownames(letterDF) = NULL
+rm(y_pos)
 
-pred_obj <- predictPlus(
-  # Differences across models
-  classify = "model",
-  asreml.obj = modLMM,
-  # Wald tests whether the differences are statistically equal to 0
-  wald.tab = wald.asreml(modLMM, denDF = "numeric")$Wald
-)
+# Boxplot for model predictive ability comparison:
 
-# Note: LSD stands for "least significant differences"
-# Pairwise comparisons
-pred_obj$differences    # LSD-based differences
-pred_obj$LSD            # LSD threshold
+ggboxplot(acc_long,
+          x     = "model",
+          y     = "accuracy",
+          fill  = "model") +
+  geom_text(data  = letterDF,
+            aes(x = model, y = y.pos, label = letter),
+            size  = 5,
+            fontface = "bold") +
+  labs(y    = "Predictive Ability",
+       x    = "Model") +
+  theme_classic() +
+  theme(legend.position = "none")
 
-# The assigned LSD is 0.005948599 (as seen in pred_obj$LSD), and all values
-# in pred_obj$differences are larger than this value (in module), hence
-# all the models differ significantly from each other
 
-sum(abs(pred_obj$differences) < 0.005948599)
-# There are 6 differences below the threshold, but they correspond to
-# the models compared to themselves
 
-# Now, to rank the models, we can add up how many negative differences are
-# found in each row, which correspond to how many models perform better than
-# the one represented in that given row (that + 1 is their rank)
-
-rowSums(pred_obj$differences < 0) + 1 # model ranking
