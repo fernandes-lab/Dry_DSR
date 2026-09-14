@@ -1,1 +1,1 @@
-This repository contains the source code files for the Dry DSR project. It has both genotypic and phenotypic exploratory analyses, cleaning in preparation for genomic prediction models, and the code for all the indirect selection approaches tested.
+This repository contains the source code files for the Dry DSR project. It has both genotypic and phenotypic exploratory analyses, cleaning in preparation for genomic prediction models, and the code for all the indirect selection methods tested.
