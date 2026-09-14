@@ -4,6 +4,9 @@ library(dplyr)
 library(tidyr)
 library(nloptr)
 
+# Same as before, the index model will have its respective Reml GBLUP 
+# + Linear kernel + Gaussian kernel approaches
+
 # Setting a seed
 set.seed(199927)
 
@@ -11,6 +14,14 @@ set.seed(199927)
 # and single-trait IS function
 source(file = here("functions", "IdxCalc.R"))
 source(file = here("functions", "cv2stageST_IS.R"))
+source(file = here("functions", "cv2stageBGLR_ST_IS.R"))
+source(file = here("functions", "cv2stageBGLRGauss_ST_IS.R"))
+
+# Load accuracy lists (created in "2-GP.R") to add 
+# the index predictive abilities
+load(file = here("output", "accGP_Reml.RData"))
+load(file = here("output", "accGP_LK.RData"))
+load(file = here("output", "accGP_GK.RData"))
 
 # G matrix:
 load(here("output", "G.RData"))
@@ -143,8 +154,24 @@ load(file = here("output", "valFolds.RData"))
 # with the selected index
 accIdx <- cv2stageST_IS(IdxDF, adjFieldEmerg, G, valFolds)
 
-load(file = here("output", "accs_List.RData"))
+accGP_Reml["accIdx"] <- accIdx
 
-accs_List[["accIdx"]] <- accIdx
+# For the kernel approaches, we will not use weights
+IdxDF <- IdxDF |>
+  select(-weight)
 
-save(accs_List, file = here("output", "accs_List.RData"))
+accIdxLK_ST_IS <- cv2stgBGLR_ST_IS(IdxDF, adjFieldEmerg, G, valFolds,
+                                     nIt = 10000, brnIn = 2000)
+
+accGP_LK["accIdx_LK"] <- accIdxLK_ST_IS
+
+accIdxGK_ST_IS <- cv2stgBGLRGauss_ST_IS(IdxDF, adjFieldEmerg, G, valFolds,
+                                        nIt = 10000, brnIn = 2000)
+
+accGP_GK["accIdx_GK"] <- accIdxGK_ST_IS
+
+# Saving accuracy lists with the new index elements
+save(accGP_Reml, file = here("output", "accGP_Reml.RData"))
+save(accGP_LK, file = here("output", "accGP_LK.RData"))
+save(accGP_GK, file = here("output", "accGP_GK.RData"))
+

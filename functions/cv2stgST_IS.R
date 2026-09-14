@@ -52,7 +52,9 @@ cv2stageST_IS <- function(dataset, tgtset, matG, vFolds){
       # Merge the predicted (GEBV) values to the original 
       # training dataset keeping only the rows relevant 
       # to the current fold
-      predMerged <- merge(predVals, dataset[, c("genotype", "BLUE")], 
+      predMerged <- merge(predVals, dataset[, c("genotype", "BLUE")],
+                          # Keeping the BLUE here is not really necessary
+                          # As we care about the target trait BLUE only
                           by = "genotype")
       
       # Naming the GEBV column accordingly

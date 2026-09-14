@@ -89,7 +89,7 @@ adjRagdollShoot <- adjMeans(expRagdoll, "shootlength")
 # List to store prediction accuracies for each modeling approach
 # Each element of the list is itself a list of accuracies,
 # one for each repetition of k-fold CV
-accs_List <- vector(mode = "list")
+# # TBD # #
 
 # Experimental data (BLUEs)
 # Loads lab proxy traits and field emergence
@@ -102,7 +102,18 @@ lapply(list.files(path = here("output"),
 # Loading folds list for repeated (10 times) 5-fold CV
 load(file = here("output", "valFolds.RData"))
 
+# List to store accuracy values for Reml
+accGP_Reml <- list()
+
+# Same for linear kernel
+accGP_LK <- list()
+
+# Gaussian kernel list
+accGP_GK <- list()
+
 ######################### Single-trait GP ##########################
+# All models will have their respective Reml GBLUP + Linear kernel
+# + Gaussian kernel approaches
 
 #------------ Field emergence (standard selection) ----------#
 
@@ -111,36 +122,70 @@ load(file = here("output", "valFolds.RData"))
 # Calling function that performs CV and returns a data frame with the GEBVs
 # and BLUEs
 
-accEmerField <- cv2stageST(adjFieldEmerg, G, valFolds)
+accField <- cv2stageST(adjFieldEmerg, G, valFolds)
 
-accs_List[["accField"]] <- accEmerField
+accGP_Reml["accField"] <- accField
+
+accFieldLK <- cv2stgBGLR_ST(adjFieldEmerg, G, valFolds, nIt = 10000, 
+                            brnIn = 2000)
+
+accGP_LK["accFieldLK"] <- accFieldLK
+
+accFieldGK <- cv2stgBGLRGauss_ST(adjFieldEmerg, G, valFolds, 
+                                        nIt = 10000, brnIn = 2000)
+
+accGP_GK["accFieldGK"] <- accFieldGK
 
 #------------ Ragdoll mesocotyl (indirect selection - IS) -----#
 
-# We will also have to eventually assess (for indirect selection)
-# how the GEBVs in the ragdoll experiment correlate with the BLUEs for
-# emergence in the field
-
 accMesoIS <- cv2stageST_IS(adjRagdollMeso, adjFieldEmerg, G, 
                            valFolds)
+
+accGP_Reml["accMesoIS"] <- accMesoIS
+
+accMesoLK_IS <- cv2stgBGLR_ST_IS(adjRagdollMeso,
+                                      adjFieldEmerg, G, valFolds, nIt = 10000,
+                                      brnIn = 2000)
+
+accGP_LK["accMesoLK"] <- accMesoLK_IS
+
+
+accMesoGK_IS <- cv2stgBGLRGauss_ST_IS(adjRagdollMeso,
+                                                adjFieldEmerg, G, valFolds, nIt = 10000,
+                                                brnIn = 2000)
+
+accGP_GK["accMesoGK"] <- accMesoGK_IS
+
 
 # To evaluate the prediction accuracy for the indirect selection approach,
 # we will assess the correlation between the lab mesocotyl GEBVs and the field 
 # emergence BLUEs. For that, we have to filter the genotypes so that only those
 # common to both datasets are left
-# Remember: our target trait is emergence, so we will divide by its heritability
-# (in the field)
-
-accs_List[["accMesoIS"]] <- accMesoIS
+# Remember: our target trait is emergence
 
 #------------ Ragdoll coleoptile (indirect selection - IS) -----#
 
 accColeoIS <- cv2stageST_IS(adjRagdollColeo, adjFieldEmerg, G, 
                             valFolds)
 
-accs_List[["accColeoIS"]] <- accColeoIS
+accGP_Reml["accColeoIS"] <- accColeoIS
+
+accColeoLK_IS <- cv2stgBGLR_ST_IS(adjRagdollColeo,
+                                       adjFieldEmerg, G, valFolds, nIt = 10000,
+                                       brnIn = 2000)
+
+accGP_LK["accColeoLK"] <- accColeoLK_IS
+
+accColeoGK_IS <- cv2stgBGLRGauss_ST_IS(adjRagdollColeo,
+                                                 adjFieldEmerg, G, valFolds, nIt = 10000,
+                                                 brnIn = 2000)
+
+accGP_GK["accColeoGK"] <- accColeoGK_IS
 
 ######################### Multi-trait GP ############################
+
+# Same as before, all models will have their respective Reml GBLUP 
+# + Linear kernel + Gaussian kernel approaches
 
 ## Basically a multi-trait indirect selection
 
@@ -154,5 +199,30 @@ accs_List[["accColeoIS"]] <- accColeoIS
 accIS_ML_CL <- cv2stageMT_IS(adjRagdollMeso, adjRagdollColeo,
                           adjFieldEmerg, G, valFolds)
 
-accs_List[["accMT_IS"]] <- accIS_ML_CL
+accGP_Reml["accMT_IS"] <- accIS_ML_CL
+
+# A bit of pre-processing for the kernel models
+MT_DF <- merge(adjRagdollMeso |> select(genotype, RagMeso = BLUE),
+               adjRagdollColeo |> select(genotype, RagColeo = BLUE), 
+               by = "genotype") |> 
+  droplevels()
+
+accLK_MT_IS <- cv2stgBGLR_MT_IS(MT_DF, adjFieldEmerg, 
+                                  G, valFolds, nIt = 10000, 
+                                  brnIn = 2000)
+
+accGP_LK["accMT_LK"] <- accLK_MT_IS
+
+accGK_MT_IS <- cv2stgBGLRGauss_MT_IS(MT_DF, adjFieldEmerg, 
+                                            G, valFolds, nIt = 10000, 
+                                            brnIn = 2000)
+
+accGP_GK["accMT_GK"] <- accGK_MT_IS
+
+# Saving accuracy lists
+save(accGP_Reml, file = here("output", "accGP_Reml.RData"))
+save(accGP_LK, file = here("output", "accGP_LK.RData"))
+save(accGP_GK, file = here("output", "accGP_GK.RData"))
+
+
 

@@ -80,6 +80,13 @@ cv2stageMT_IS <- function(dataset1, dataset2, tgtset, matG, vFolds){
   # Vector of accuracies for each repetition
   accs <- numeric()
   
+  # Filter trainData for only genotypes present in the G matrix
+  longData <- longData[longData$genotype %in% rownames(matG), ]
+  
+  # Filter G according to the genotypes found in the training dataset
+  Gfilt <- G[rownames(G) %in% longData$genotype,
+             colnames(G) %in% longData$genotype]
+  
   for (j in 1:nrep){
   # Data frame to store the results
   gpDF <- data.frame()
@@ -93,13 +100,6 @@ cv2stageMT_IS <- function(dataset1, dataset2, tgtset, matG, vFolds){
     # fold, f = 1, 2, ..., k, so they are absent from training the model
     # This should mask the BLUEs for both traits
     trainData[trainData$genotype %in% vFolds[[j]][[f]], "BLUE"] <- NA
-    
-    # Filter trainData for only genotypes present in the G matrix
-    trainData <- trainData[trainData$genotype %in% rownames(matG), ]
-    
-    # Filter G according to the genotypes found in the training dataset
-    Gfilt <- G[rownames(G) %in% trainData$genotype,
-               colnames(G) %in% trainData$genotype]
     
     # Bivariate GBLUP model
     MT_GBLUPmodel <- asreml(fixed = BLUE ~ trait,
