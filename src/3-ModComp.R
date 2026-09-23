@@ -22,17 +22,23 @@ acc <- data.frame(
   accuracy = unlist(accGlobal, use.names = FALSE)
 )
 
-# In order to assess whether the models differ significantly from each other, 
-# we can employ an analysis of variance (ANOVA), using the CV repetition
-# as a grouping factor (specified as a stratum via the Error(.) term), and
-# model and approach as factors that may interact
+# Renaming Reml to GBLUP, LK to B_GBLUP (Bayesian GBLUP) and GK to B_Gauss 
+# (Bayesian with Gaussian kernel mixture)
+acc <- acc |>
+  mutate(
+    approach = fct_recode(
+      approach,
+      "GBLUP" = "Reml",
+      "B_GBLUP" = "LK",
+      "B_Gauss" = "GK"),
+    model = fct_recode(
+      model,
+      "Emerg" = "Field"
+    )
+  )
 
-modAOV <- aov(accuracy ~ model*approach + CV_rep, acc)
-summary(modAOV)
-
-# The interaction term is significant, implying that the model + approach
-# combinations differ from each other, hence we can assess their pairwise
-# differences via Tukey HSD, which will be illustrated in the last plot
+# Number of CV repetitions per (model + approach) combination
+nRep <- length(unique(acc$CV_rep))
 
 #-------------------------------------------------------------#
 
@@ -44,20 +50,17 @@ okabe_ito <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442")
 # Plot illustrating the indirect selection models relative to the 
 # baseline field model, grouped by approach:
 
-# Number of CV repetitions per (model + approach) combination
-nRep <- length(unique(acc$CV_rep))
-
 # Filtering for only the baseline Field model across all 3 frameworks
 # As it will be used for horizontal contrast lines for each approach
 Field_models <- acc |>
-  filter(model == "Field") |>
+  filter(model == "Emerg") |>
   group_by(approach) |>
   summarise(mean_acc = mean(accuracy), se = sd(accuracy)/sqrt(nRep), 
             .groups = "drop")
 
 # Filtering for remaining models for bar plots
 IS_models <- acc |>
-  filter(model != "Field") |>
+  filter(model != "Emerg") |>
   group_by(model, approach) |>
   summarise(mean_acc = mean(accuracy), se = sd(accuracy)/sqrt(nRep), 
             .groups = "drop")
@@ -105,40 +108,40 @@ summary_acc <- acc |>
             .groups = "drop")
 
 ggplot(summary_acc, aes(x = approach, 
-                        y = factor(model, levels = c("ColeoIS", "MesoIS", "MT_IS", "Idx", "Field")), 
+                        y = factor(model, levels = c("ColeoIS", "MesoIS", "MT_IS", "Idx", "Emerg")), 
                         fill = mean_acc)) +
   geom_tile() +
-  geom_text(aes(label = round(mean_acc, 3)), color = "black") +
+  geom_text(aes(label = round(mean_acc, 3)), color = "white") +
   scale_fill_viridis_c() +
   labs(x = "Approach", y = "Model", fill = "Mean Predictive Ability")
 
 #--------------------------------------------------------------------------#
+# Percentage plot comparing each approach's IS models to their respective
+# baseline field model, computing the proportions for each CV repetition
 
-# "Delta" plot comparing each approach's IS models to their respective
-# baseline field model, computing the differences for each CV repetition
-acc_delta <- acc |>
+acc_perc <- acc |>
   group_by(approach, CV_rep) |>
-  mutate(Field_acc = accuracy[model == "Field"]) |>
+  mutate(Field_acc = accuracy[model == "Emerg"]) |>
   ungroup() |>
-  filter(model != "Field") |>
-  mutate(delta_acc = accuracy - Field_acc)
+  filter(model != "Emerg") |>
+  mutate(perc_acc = accuracy/Field_acc*100)
 
 # Summarizing for plotting
-delta_summary <- acc_delta |>
+perc_summary <- acc_perc |>
   group_by(model, approach) |>
-  summarise(mean_delta = mean(delta_acc), se = sd(delta_acc)/sqrt(nRep), 
+  summarise(mean_perc = mean(perc_acc), se = sd(perc_acc)/sqrt(nRep), 
             .groups = "drop")
 
-ggplot(delta_summary, aes(x = factor(model, levels =  c("ColeoIS", "MesoIS", "MT_IS", "Idx")), 
-                          y = mean_delta,
+ggplot(perc_summary, aes(x = factor(model, levels =  c("ColeoIS", "MesoIS", "MT_IS", "Idx")), 
+                          y = mean_perc,
                           fill = factor(model, 
-                          levels = c("ColeoIS", "MesoIS", "MT_IS", "Idx")))) +
+                                        levels = c("ColeoIS", "MesoIS", "MT_IS", "Idx")))) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "black", linewidth = 0.6) +
   geom_col() +
-  geom_errorbar(aes(ymin = mean_delta - se, ymax = mean_delta + se), width = 0.2) +
+  geom_errorbar(aes(ymin = mean_perc - se, ymax = mean_perc + se), width = 0.2) +
   facet_wrap(~approach) +
   scale_fill_manual(values = okabe_ito, name = "Model type") +
-  labs(x = NULL, y = "PA loss") +
+  labs(x = NULL, y = "Baseline PA %") +
   theme_minimal(base_size = 12) +
   theme(
     axis.text.x = element_blank(),
@@ -149,21 +152,41 @@ ggplot(delta_summary, aes(x = factor(model, levels =  c("ColeoIS", "MesoIS", "MT
     strip.text = element_text(face = "bold")
   )
 
+
+
 #------------------------------------------------------------------------#
 # 15-model ranking - lollipop plot
 
+# In order to assess whether the models differ significantly from each other, 
+# we can employ an analysis of variance (ANOVA), using the CV repetition
+# as a grouping factor (specified as a stratum via the Error(.) term), and
+# model and approach as factors that may interact
+
+modAOV <- aov(accuracy ~ model*approach + CV_rep, acc)
+# summary(modAOV)
+
+# The interaction term is significant, implying that the model + approach
+# combinations differ from each other, hence we can assess their pairwise
+# differences via Tukey HSD, which will be illustrated in the last plot
+
 # In order to conduct pairwise comparisons, we can conduct the Tukey's HSD 
-# (Honestly Significant Difference):
+# (Honest Significant Difference):
 (tukeyMod <- TukeyHSD(modAOV, which = "model:approach"))
 
 # Adding CLD (Compact Letter Display) to the lollipop plot:
 tukey_pvals <- tukeyMod$model[, "p adj"]
-lettersComp <- multcompLetters(tukey_pvals)
 
 # Single column in the original acc dataset combining model and approach
 # with ":" as a separator to ensure compatibility with lettersComp (via y_pos)
 acc <- acc |>
   mutate(mod_app = as.factor(paste(model, approach, sep = ":")))
+
+# To ensure the letters are ordered in the plot according to predictive ability
+lettersComp <- multcompLetters2(accuracy ~ mod_app,
+                               tukey_pvals,
+                               data = acc,
+                               reversed = FALSE)
+
 
 # Data frame with letter positions:
 letterDF <- data.frame(
@@ -182,7 +205,7 @@ rank_summary <- acc |>
   # Merging rank_summary to letterDF
   left_join(letterDF, by = "mod_app") |>
   arrange(mean_acc)
-  
+
 
 # Modifying the model + accuracy column for better display in the lollipop plot
 rank_summary <- rank_summary |>
